@@ -12,6 +12,7 @@ import {
   type ScheduledReminder,
   type ReminderConfig,
 } from "./reminders";
+import { checkDates, type DateNotification } from "../dates/engine";
 
 export type CareNotification = {
   id: string;
@@ -29,6 +30,9 @@ let listeners: NotificationCallback[] = [];
 let scheduled: Map<string, ScheduledReminder> = new Map();
 let settings: CareSettings = { ...DEFAULT_CARE_SETTINGS };
 let whisperReminders: ScheduledReminder[] = [];
+
+// Track last date check — only check once per day (resets on restart, which is fine)
+let lastDateCheckDay = -1;
 
 const TICK_MS = 60_000;
 const SETTINGS_KEY = "careSettings";
@@ -59,6 +63,7 @@ export function stopCareEngine(): void {
   listeners = [];
   scheduled.clear();
   whisperReminders = [];
+  lastDateCheckDay = -1;
 }
 
 export function isCareEngineRunning(): boolean {
@@ -158,6 +163,50 @@ function tick(): void {
     }
   }
   whisperReminders = remaining;
+
+  // Date checks — once per day only
+  const todayDay = nowDate.getDate();
+  if (todayDay !== lastDateCheckDay) {
+    lastDateCheckDay = todayDay;
+    void runDateChecks(now);
+  }
+}
+
+async function runDateChecks(now: number): Promise<void> {
+  try {
+    const notifications = await checkDates(3);
+    for (const dn of notifications) {
+      fireDateNotification(dn, now);
+    }
+  } catch {
+    // Date check failed — will retry next day
+  }
+}
+
+function fireDateNotification(dn: DateNotification, now: number): void {
+  let icon: string;
+  let message: string;
+
+  if (dn.isToday) {
+    icon = "\u{1F389}"; // 🎉
+    const yearsPart = dn.yearsSince !== null && dn.yearsSince > 0
+      ? ` Today marks ${dn.yearsSince} year${dn.yearsSince !== 1 ? "s" : ""}.`
+      : "";
+    message = `Happy ${dn.entry.type}! ${dn.entry.label}.${yearsPart}`;
+  } else {
+    icon = "\u{1F4C5}"; // 📅
+    message = `${dn.entry.label} is in ${dn.daysUntil} day${dn.daysUntil !== 1 ? "s" : ""}.`;
+  }
+
+  const notification: CareNotification = {
+    id: `date-${dn.entry.id}-${now}`,
+    icon,
+    message,
+    timestamp: now,
+  };
+  for (const cb of listeners) {
+    cb(notification);
+  }
 }
 
 function fire(sr: ScheduledReminder, now: number): void {

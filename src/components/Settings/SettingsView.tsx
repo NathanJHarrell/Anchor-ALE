@@ -12,6 +12,7 @@ import {
   type CareSettings,
   type ReminderTone,
 } from "../../lib/care/reminders";
+import DatesManager from "./DatesManager";
 
 interface SettingsState {
   provider: Provider;
@@ -304,6 +305,11 @@ export default function SettingsView() {
             );
           })}
         </div>
+      </section>
+
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-anchor-muted uppercase tracking-wide">Important Dates</h3>
+        <DatesManager />
       </section>
 
       <section className="space-y-4">
