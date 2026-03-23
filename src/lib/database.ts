@@ -79,9 +79,17 @@ async function initTables(database: Database): Promise<void> {
       role TEXT NOT NULL,
       content TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
-      token_estimate INTEGER DEFAULT 0
+      token_estimate INTEGER DEFAULT 0,
+      images_json TEXT
     )
   `);
+
+  // Migration: add images_json column if missing (existing installs)
+  try {
+    await database.execute(`ALTER TABLE session_messages ADD COLUMN images_json TEXT`);
+  } catch {
+    // Column already exists — ignore
+  }
 
   await database.execute(`
     CREATE TABLE IF NOT EXISTS dates (
@@ -353,6 +361,7 @@ interface SessionMessageRow {
   content: string;
   timestamp: number;
   token_estimate: number;
+  images_json: string | null;
 }
 
 function rowToSessionMessage(row: SessionMessageRow): SessionMessage {
@@ -363,6 +372,7 @@ function rowToSessionMessage(row: SessionMessageRow): SessionMessage {
     content: row.content,
     timestamp: row.timestamp,
     tokenEstimate: row.token_estimate,
+    imagesJson: row.images_json ?? undefined,
   };
 }
 
@@ -371,11 +381,12 @@ export async function addSessionMessage(
   role: SessionMessage["role"],
   content: string,
   tokenEstimate = 0,
+  imagesJson?: string | null,
 ): Promise<void> {
   const database = await getDatabase();
   await database.execute(
-    "INSERT INTO session_messages (session_id, role, content, timestamp, token_estimate) VALUES ($1, $2, $3, $4, $5)",
-    [sessionId, role, content, Date.now(), tokenEstimate]
+    "INSERT INTO session_messages (session_id, role, content, timestamp, token_estimate, images_json) VALUES ($1, $2, $3, $4, $5, $6)",
+    [sessionId, role, content, Date.now(), tokenEstimate, imagesJson ?? null]
   );
 }
 

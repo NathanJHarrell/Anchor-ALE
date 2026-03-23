@@ -5,9 +5,16 @@ export enum Provider {
   OpenRouter = "openrouter",
 }
 
+export interface MessageImage {
+  type: 'base64';
+  media_type: string;
+  data: string;
+}
+
 export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
+  images?: MessageImage[];
 }
 
 export interface StreamChunk {
@@ -126,6 +133,7 @@ export interface SessionMessage {
   content: string;
   timestamp: number;
   tokenEstimate: number;
+  imagesJson?: string;
 }
 
 // ── Date tracking types ────────────────────────────────────────

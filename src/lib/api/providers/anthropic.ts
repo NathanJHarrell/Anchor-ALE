@@ -3,9 +3,28 @@ import type { Message, StreamChunk, APIConfig } from "../../types";
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
 
+type AnthropicContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
 interface AnthropicMessage {
   role: "user" | "assistant";
-  content: string;
+  content: string | AnthropicContentBlock[];
+}
+
+function formatAnthropicMessage(m: Message): AnthropicMessage {
+  const role = m.role as "user" | "assistant";
+  if (m.images && m.images.length > 0) {
+    const blocks: AnthropicContentBlock[] = [
+      ...m.images.map((img) => ({
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: img.media_type, data: img.data },
+      })),
+      { type: "text" as const, text: m.content },
+    ];
+    return { role, content: blocks };
+  }
+  return { role, content: m.content };
 }
 
 export async function* streamAnthropic(
@@ -15,7 +34,7 @@ export async function* streamAnthropic(
   const systemMessages = messages.filter((m) => m.role === "system");
   const conversationMessages: AnthropicMessage[] = messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    .map(formatAnthropicMessage);
 
   const body: Record<string, unknown> = {
     model: config.model,

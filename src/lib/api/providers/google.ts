@@ -2,9 +2,25 @@ import type { Message, StreamChunk, APIConfig } from "../../types";
 
 const GEMINI_API = "https://generativelanguage.googleapis.com/v1beta/models";
 
+type GeminiPart =
+  | { text: string }
+  | { inline_data: { mime_type: string; data: string } };
+
 interface GeminiContent {
   role: "user" | "model";
-  parts: Array<{ text: string }>;
+  parts: GeminiPart[];
+}
+
+function formatGeminiMessage(m: Message): GeminiContent {
+  const role = m.role === "assistant" ? ("model" as const) : ("user" as const);
+  const parts: GeminiPart[] = [];
+  if (m.images && m.images.length > 0) {
+    for (const img of m.images) {
+      parts.push({ inline_data: { mime_type: img.media_type, data: img.data } });
+    }
+  }
+  parts.push({ text: m.content });
+  return { role, parts };
 }
 
 export async function* streamGoogle(
@@ -14,10 +30,7 @@ export async function* streamGoogle(
   const systemMessages = messages.filter((m) => m.role === "system");
   const conversationMessages: GeminiContent[] = messages
     .filter((m) => m.role !== "system")
-    .map((m) => ({
-      role: m.role === "assistant" ? ("model" as const) : ("user" as const),
-      parts: [{ text: m.content }],
-    }));
+    .map(formatGeminiMessage);
 
   const body: Record<string, unknown> = {
     contents: conversationMessages,

@@ -3,19 +3,34 @@ import { parseOpenAIStream } from "./openai";
 
 const OPENROUTER_API = "https://openrouter.ai/api/v1/chat/completions";
 
+type OpenRouterContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 interface OpenRouterMessage {
   role: "user" | "assistant" | "system";
-  content: string;
+  content: string | OpenRouterContentBlock[];
+}
+
+function formatOpenRouterMessage(m: Message): OpenRouterMessage {
+  if (m.images && m.images.length > 0 && m.role === "user") {
+    const blocks: OpenRouterContentBlock[] = [
+      ...m.images.map((img) => ({
+        type: "image_url" as const,
+        image_url: { url: `data:${img.media_type};base64,${img.data}` },
+      })),
+      { type: "text" as const, text: m.content },
+    ];
+    return { role: m.role, content: blocks };
+  }
+  return { role: m.role, content: m.content };
 }
 
 export async function* streamOpenRouter(
   messages: Message[],
   config: APIConfig,
 ): AsyncGenerator<StreamChunk> {
-  const openRouterMessages: OpenRouterMessage[] = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const openRouterMessages: OpenRouterMessage[] = messages.map(formatOpenRouterMessage);
 
   const response = await fetch(OPENROUTER_API, {
     method: "POST",
