@@ -1,10 +1,10 @@
 import { readTextFile } from "@tauri-apps/plugin-fs";
 import type { Message, Session } from "../types";
 import { getSetting } from "../database";
-import { getHandoffLetter } from "../database";
 import { buildVaultContext } from "../vault/injector";
 import { getPresenceContext } from "../presence/injector";
 import { getDateContext } from "../dates/engine";
+import { readEntries, readLatestLetter } from "../journal";
 
 /**
  * Build the full API message array for a session.
@@ -51,13 +51,27 @@ export async function buildSessionContext(session: Session): Promise<Message[]> 
     // Dates unavailable — continue without
   }
 
-  // 5. Latest handoff letter for this session (if any)
+  // 5. Mood history — companion reads her own previous diary entries
   try {
-    const handoff = await getHandoffLetter(session.id);
-    if (handoff && handoff.summaryContext) {
+    const moodEntries = await readEntries(3);
+    if (moodEntries.length > 0) {
+      const joined = moodEntries.join("\n---\n");
       apiMessages.push({
         role: "system",
-        content: `[Handoff context from previous session]\n${handoff.summaryContext}`,
+        content: `[MOOD_HISTORY]Previous reflections:\n${joined}[/MOOD_HISTORY]`,
+      });
+    }
+  } catch {
+    // Mood history unavailable — continue without
+  }
+
+  // 6. Latest handoff letter — decrypted from the companion's private store
+  try {
+    const letter = await readLatestLetter();
+    if (letter) {
+      apiMessages.push({
+        role: "system",
+        content: `[HANDOFF_LETTER]The previous companion wrote: ${letter}[/HANDOFF_LETTER]`,
       });
     }
   } catch {

@@ -2,6 +2,7 @@ import type { Message, BridgeEvent, HeartbeatStatus } from "../types";
 import { logBridgeEvent } from "../database";
 import { HeartbeatMonitor } from "./monitor";
 import { generateSummary } from "./summarizer";
+import { generateHandoffLetter, writeHandoffLetter, readLatestLetter } from "../journal";
 
 export type BridgeListener = (event: BridgeEvent) => void;
 export type MessageSwapFn = (newMessages: Message[]) => void;
@@ -85,11 +86,23 @@ export class HeartbeatBridge {
         ? await generateSummary(messages)
         : "No conversation history to summarize.";
 
+      // Generate handoff letter — companion writes to her next self
+      if (messages.length > 0) {
+        try {
+          const letter = await generateHandoffLetter(messages);
+          if (letter) {
+            await writeHandoffLetter(letter, status.sessionId);
+          }
+        } catch {
+          // Handoff letter generation failed — bridge continues without it
+        }
+      }
+
       // Create new session
       const newSessionId = crypto.randomUUID();
 
-      // Build bridged message array
-      const bridgedMessages = this.buildBridgedMessages(summary);
+      // Build bridged message array (includes handoff letter if available)
+      const bridgedMessages = await this.buildBridgedMessages(summary);
 
       // Swap the active message array (display stays unchanged)
       this.onSwap?.(bridgedMessages);
@@ -121,7 +134,7 @@ export class HeartbeatBridge {
 
   // ── Helpers ─────────────────────────────────────────────────
 
-  private buildBridgedMessages(summary: string): Message[] {
+  private async buildBridgedMessages(summary: string): Promise<Message[]> {
     const messages: Message[] = [];
 
     if (this.systemPrompt) {
@@ -139,6 +152,19 @@ export class HeartbeatBridge {
       role: "system",
       content: `[BRIDGE_CONTEXT]${summary}[/BRIDGE_CONTEXT]`,
     });
+
+    // Inject handoff letter from the previous companion
+    try {
+      const letter = await readLatestLetter();
+      if (letter) {
+        messages.push({
+          role: "system",
+          content: `[HANDOFF_LETTER]The previous companion wrote: ${letter}[/HANDOFF_LETTER]`,
+        });
+      }
+    } catch {
+      // Handoff letter unavailable — continue without
+    }
 
     return messages;
   }

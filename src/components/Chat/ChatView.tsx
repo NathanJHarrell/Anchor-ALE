@@ -21,6 +21,7 @@ import { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "../../li
 import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
 import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
 import { addDate } from "../../lib/database";
+import { parseMoodTags, writeEntry } from "../../lib/journal";
 import {
   createAftercareState,
   recordMessage,
@@ -326,8 +327,16 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
             fireImmediateWhispers(immediateWhispers);
           }
 
+          // Parse [MOOD:] tags — silently strip and store in companion's diary
+          const { cleaned: afterMoodStrip, moods } = parseMoodTags(cleaned || accumulated);
+          if (moods.length > 0 && currentSession) {
+            for (const mood of moods) {
+              writeEntry(mood, currentSession.id).catch(() => {});
+            }
+          }
+
           // Parse [SESSION_NAME] tags from AI response
-          const { cleaned: afterNameStrip, sessionName } = parseSessionName(cleaned || accumulated);
+          const { cleaned: afterNameStrip, sessionName } = parseSessionName(afterMoodStrip || cleaned || accumulated);
           if (sessionName && currentSession) {
             applySessionName(currentSession.id, sessionName).then(() => {
               setCurrentSession((prev) => prev ? { ...prev, name: sessionName.name } : prev);
