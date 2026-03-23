@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import NavigationBar from "./NavigationBar";
 import DateLauncher from "./DateLauncher";
+import BrowserChatPanel from "./BrowserChatPanel";
 import { getCurrentPageContent } from "./ContentExtractor";
 import { addBrowserHistory } from "../../lib/database";
 import type { PageContent } from "../../lib/types";
@@ -22,6 +23,9 @@ export default function BrowserView() {
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
 
+  // Chat panel toggle — default hidden
+  const [chatOpen, setChatOpen] = useState(false);
+
   // Split view
   const [splitRatio, setSplitRatio] = useState(DEFAULT_SPLIT);
   const [isDragging, setIsDragging] = useState(false);
@@ -34,17 +38,7 @@ export default function BrowserView() {
   // AI navigation suggestions from chat
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
 
-  // Chat input
-  const [chatInput, setChatInput] = useState("");
-  const [chatMessages, setChatMessages] = useState<{ role: "user" | "assistant" | "context"; text: string }[]>([]);
-
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-
-  // Auto-scroll chat
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatMessages, sharedContent]);
 
   // ── Navigation ───────────────────────────────────────────────
 
@@ -57,7 +51,6 @@ export default function BrowserView() {
       setCurrentUrl(url);
       setIsLoading(true);
 
-      // Update history stack
       setHistory((prev) => {
         const newHistory = prev.slice(0, historyIndex + 1);
         newHistory.push(url);
@@ -65,8 +58,7 @@ export default function BrowserView() {
       });
       setHistoryIndex((prev) => prev + 1);
 
-      // Save to SQLite browser history
-      const title = url; // Will be updated when iframe loads
+      const title = url;
       void addBrowserHistory(url, title);
     },
     [historyIndex]
@@ -114,44 +106,14 @@ export default function BrowserView() {
       const content = await getCurrentPageContent(currentUrl);
       const shared: SharedContent = { content, timestamp: Date.now() };
       setSharedContent((prev) => [...prev, shared]);
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          role: "context" as const,
-          text: `📄 Shared: ${content.title}\n\n${content.text.slice(0, 500)}${content.text.length > 500 ? "..." : ""}`,
-        },
-      ]);
+      // Auto-open chat panel when sharing
+      setChatOpen(true);
     } catch {
-      setChatMessages((prev) => [
-        ...prev,
-        { role: "context" as const, text: "⚠ Could not extract content from this page." },
-      ]);
+      // Extraction failed — panel will show existing context
     } finally {
       setIsExtracting(false);
     }
   }, [currentUrl]);
-
-  // ── Chat with AI navigation detection ────────────────────────
-
-  const sendChatMessage = useCallback(() => {
-    const text = chatInput.trim();
-    if (!text) return;
-    setChatInput("");
-    setChatMessages((prev) => [...prev, { role: "user", text }]);
-
-    // Simulate assistant response (real API integration happens in ChatView)
-    // For now, demonstrate AI navigation detection
-    setTimeout(() => {
-      const response = `I see your message. The shared browser context is available for our conversation.`;
-      setChatMessages((prev) => [...prev, { role: "assistant", text: response }]);
-
-      // Check for [NAVIGATE: url] pattern in response
-      const navMatch = /\[NAVIGATE:\s*(https?:\/\/[^\]]+)\]/i.exec(response);
-      if (navMatch?.[1]) {
-        setAiSuggestion(navMatch[1]);
-      }
-    }, 300);
-  }, [chatInput]);
 
   // ── Resizable divider ────────────────────────────────────────
 
@@ -184,22 +146,41 @@ export default function BrowserView() {
   // ── Render ───────────────────────────────────────────────────
 
   const showBrowser = currentUrl !== HOME_URL;
+  const showChat = chatOpen && showBrowser;
 
   return (
     <div className="flex flex-col h-full -m-4">
       {/* Navigation bar — always visible */}
-      <NavigationBar
-        currentUrl={currentUrl}
-        canGoBack={historyIndex > 0}
-        canGoForward={historyIndex < history.length - 1}
-        isLoading={isLoading || isExtracting}
-        onNavigate={navigateTo}
-        onBack={goBack}
-        onForward={goForward}
-        onRefresh={refresh}
-        onHome={goHome}
-        onShareWithAI={() => void shareWithAI()}
-      />
+      <div className="flex items-center">
+        <div className="flex-1 min-w-0">
+          <NavigationBar
+            currentUrl={currentUrl}
+            canGoBack={historyIndex > 0}
+            canGoForward={historyIndex < history.length - 1}
+            isLoading={isLoading || isExtracting}
+            onNavigate={navigateTo}
+            onBack={goBack}
+            onForward={goForward}
+            onRefresh={refresh}
+            onHome={goHome}
+            onShareWithAI={() => void shareWithAI()}
+          />
+        </div>
+
+        {/* Chat toggle button — only when browsing */}
+        {showBrowser && (
+          <button
+            onClick={() => setChatOpen((prev) => !prev)}
+            className={`px-3 py-1.5 text-xs font-medium border-b border-l border-anchor-border transition-colors whitespace-nowrap ${
+              chatOpen
+                ? "bg-anchor-accent/15 text-anchor-accent"
+                : "bg-anchor-surface text-anchor-muted hover:text-anchor-text"
+            }`}
+          >
+            {chatOpen ? "Hide Chat" : "Chat"}
+          </button>
+        )}
+      </div>
 
       {/* AI navigation suggestion banner */}
       {aiSuggestion && (
@@ -228,7 +209,7 @@ export default function BrowserView() {
         {/* Browser panel */}
         <div
           className="min-h-0 overflow-hidden"
-          style={{ width: showBrowser ? `${splitRatio * 100}%` : "100%" }}
+          style={{ width: showChat ? `${splitRatio * 100}%` : "100%" }}
         >
           {showBrowser ? (
             <iframe
@@ -244,8 +225,8 @@ export default function BrowserView() {
           )}
         </div>
 
-        {/* Resizable divider — only when browsing */}
-        {showBrowser && (
+        {/* Resizable divider — only when chat is open */}
+        {showChat && (
           <div
             onMouseDown={handleDragStart}
             className={`w-1 cursor-col-resize shrink-0 transition-colors ${
@@ -254,65 +235,13 @@ export default function BrowserView() {
           />
         )}
 
-        {/* Chat panel — visible when browsing */}
-        {showBrowser && (
+        {/* Chat panel — visible when toggled on */}
+        {showChat && (
           <div
-            className="flex flex-col min-h-0 bg-anchor-surface border-l border-anchor-border"
+            className="min-h-0 border-l border-anchor-border"
             style={{ width: `${(1 - splitRatio) * 100}%` }}
           >
-            <div className="px-3 py-2 border-b border-anchor-border text-xs font-medium text-anchor-muted">
-              Chat — Browser Context
-            </div>
-
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-3">
-              {chatMessages.length === 0 && sharedContent.length === 0 && (
-                <p className="text-xs text-anchor-muted text-center mt-8">
-                  Click &quot;Share with AI&quot; to send page content here, then chat about it.
-                </p>
-              )}
-
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`text-xs leading-relaxed rounded-lg px-3 py-2 ${
-                    msg.role === "user"
-                      ? "bg-anchor-accent/15 text-anchor-text ml-6"
-                      : msg.role === "context"
-                        ? "bg-anchor-bg border border-anchor-border text-anchor-muted"
-                        : "bg-anchor-bg/50 text-anchor-text mr-6"
-                  }`}
-                >
-                  <pre className="whitespace-pre-wrap font-[inherit]">{msg.text}</pre>
-                </div>
-              ))}
-              <div ref={chatEndRef} />
-            </div>
-
-            {/* Chat input */}
-            <div className="p-3 border-t border-anchor-border">
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  sendChatMessage();
-                }}
-                className="flex gap-2"
-              >
-                <input
-                  type="text"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Ask about this page..."
-                  className="flex-1 px-3 py-1.5 rounded-md bg-anchor-bg border border-anchor-border text-xs text-anchor-text placeholder-anchor-muted focus:outline-none focus:border-anchor-accent"
-                />
-                <button
-                  type="submit"
-                  className="px-3 py-1.5 rounded-md text-xs bg-anchor-accent text-white hover:bg-anchor-accent-hover transition-colors"
-                >
-                  Send
-                </button>
-              </form>
-            </div>
+            <BrowserChatPanel sharedContent={sharedContent} />
           </div>
         )}
       </div>

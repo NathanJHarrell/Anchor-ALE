@@ -11,7 +11,7 @@ import {
   type DisplayMessage,
 } from "../../lib/sessions";
 import { listSessions } from "../../lib/database";
-import type { Message, APIConfig, Session } from "../../lib/types";
+import type { Message, MessageImage, APIConfig, Session } from "../../lib/types";
 import MessageBubble from "./MessageBubble";
 import StreamingMessage from "./StreamingMessage";
 import ThinkingIndicator from "./ThinkingIndicator";
@@ -117,6 +117,17 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     return () => window.removeEventListener("session-changed", handler);
   }, [doSwitchSession]);
 
+  // ── Listen for messages sent from browser chat panel ────────────
+
+  useEffect(() => {
+    const handler = () => {
+      if (!currentSession) return;
+      loadHistory(currentSession.id).then(setMessages).catch(() => {});
+    };
+    window.addEventListener("chat-message-sent", handler);
+    return () => window.removeEventListener("chat-message-sent", handler);
+  }, [currentSession]);
+
   // ── Auto-scroll ─────────────────────────────────────────────────
 
   const scrollToBottom = useCallback(() => {
@@ -149,10 +160,14 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         apiMessages.push({ role: "system", content: vaultContent });
       }
 
-      // Conversation messages
+      // Conversation messages (include images if present)
       for (const msg of displayMessages) {
         if (msg.role !== "system") {
-          apiMessages.push({ role: msg.role, content: msg.content });
+          const apiMsg: Message = { role: msg.role, content: msg.content };
+          if (msg.images && msg.images.length > 0) {
+            apiMsg.images = msg.images;
+          }
+          apiMessages.push(apiMsg);
         }
       }
 
@@ -283,9 +298,9 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
   // ── Send message ────────────────────────────────────────────────
 
   const handleSend = useCallback(
-    async (text: string) => {
+    async (text: string, images?: MessageImage[]) => {
       // Check slash commands
-      if (text.startsWith("/")) {
+      if (text.startsWith("/") && !images) {
         const handled = await handleSlashCommand(text);
         if (handled) return;
       }
@@ -300,12 +315,16 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         role: "user",
         content: text,
         timestamp: Date.now(),
+        images,
       };
       const updatedMessages = [...messages, userMsg];
       setMessages(updatedMessages);
 
       // Persist user message
       saveMessage(currentSession.id, userMsg).catch(() => {});
+
+      // Notify browser chat panel
+      window.dispatchEvent(new CustomEvent("chat-message-sent"));
 
       // Track for aftercare detection
       recordMessage(aftercareRef.current, text.length);
@@ -392,6 +411,9 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
           // Persist assistant message
           saveMessage(currentSession.id, assistantMsg).catch(() => {});
+
+          // Notify browser chat panel
+          window.dispatchEvent(new CustomEvent("chat-message-sent"));
 
           // Update heartbeat monitor with current conversation token count
           const allMsgs = [...updatedMessages, assistantMsg];
@@ -521,6 +543,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
                     role={msg.role as "user" | "assistant"}
                     content={msg.content}
                     timestamp={msg.timestamp}
+                    images={msg.images}
                   />
                 )}
               </div>
