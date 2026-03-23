@@ -268,9 +268,12 @@ export default function ArchiveView() {
                     }`}
                   >
                     {/* Card header */}
-                    <button
+                    <div
                       onClick={() => void handleExpand(session.id)}
-                      className="w-full text-left p-4"
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); void handleExpand(session.id); } }}
+                      className="w-full text-left p-4 cursor-pointer"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
@@ -313,7 +316,7 @@ export default function ArchiveView() {
                           </button>
                         </div>
                       </div>
-                    </button>
+                    </div>
 
                     {/* Expanded conversation view */}
                     {expandedSession === session.id && (

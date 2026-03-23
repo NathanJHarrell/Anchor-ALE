@@ -17,6 +17,9 @@ import StreamingMessage from "./StreamingMessage";
 import ThinkingIndicator from "./ThinkingIndicator";
 import InputBar from "./InputBar";
 import CareNotifications from "./CareNotifications";
+import HeartbeatIndicator from "./HeartbeatIndicator";
+import { HeartbeatMonitor } from "../../lib/heartbeat/monitor";
+import { HeartbeatBridge } from "../../lib/heartbeat/bridge";
 import { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "../../lib/care/whisper";
 import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
 import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
@@ -59,6 +62,8 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
   const abortRef = useRef(false);
   const aftercareRef = useRef(createAftercareState());
   const loadedVaultFilesRef = useRef<string[]>([]);
+  const monitorRef = useRef(new HeartbeatMonitor());
+  const bridgeRef = useRef(new HeartbeatBridge(monitorRef.current));
 
   // ── Session initialization ──────────────────────────────────────
 
@@ -66,6 +71,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     let cancelled = false;
     (async () => {
       try {
+        await monitorRef.current.init();
         const session = await getActiveSession();
         if (cancelled) return;
         setCurrentSession(session);
@@ -387,6 +393,12 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
           // Persist assistant message
           saveMessage(currentSession.id, assistantMsg).catch(() => {});
 
+          // Update heartbeat monitor with current conversation token count
+          const allMsgs = [...updatedMessages, assistantMsg];
+          monitorRef.current.update(
+            allMsgs.map((m) => ({ role: m.role as "user" | "assistant" | "system", content: m.content }))
+          );
+
           // Track for aftercare detection
           recordMessage(aftercareRef.current, finalContent.length);
           const ac = checkAftercare(aftercareRef.current);
@@ -437,6 +449,11 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
   return (
     <div className="flex flex-col h-full -m-4">
+      {/* Heartbeat indicator — context window health */}
+      <div className="flex justify-end px-4 py-1 shrink-0">
+        <HeartbeatIndicator monitor={monitorRef.current} bridge={bridgeRef.current} />
+      </div>
+
       {/* Care notifications banner */}
       <CareNotifications
         aftercare={aftercare}

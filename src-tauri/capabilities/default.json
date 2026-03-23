@@ -21,10 +21,13 @@
     "fs:allow-appdata-read-recursive",
     "fs:allow-appdata-write-recursive",
     "fs:create-app-specific-dirs",
+    "dialog:default",
+    "dialog:allow-open",
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$APPDATA/anchor/vault/**" }
+        { "path": "$APPDATA/anchor/vault/**" },
+        { "path": "$HOME/**" }
       ]
     }
   ]

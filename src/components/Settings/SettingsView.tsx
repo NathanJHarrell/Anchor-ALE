@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 import { getSetting, setSetting } from "../../lib/database";
 import { Provider } from "../../lib/types";
+import type { VaultFile } from "../../lib/types";
 import {
   getCareSettings,
   saveCareSettings,
@@ -20,12 +22,22 @@ import {
   type AmbientWhisperSettings,
   type AmbientFrequency,
 } from "../../lib/care/ambient-whisper";
+import {
+  listFiles,
+  getAutoLoadFiles,
+  setAutoLoadFiles,
+  getVaultLoadMode,
+  setVaultLoadMode,
+  estimateVaultTokens,
+  type VaultLoadMode,
+} from "../../lib/vault";
 
 interface SettingsState {
   provider: Provider;
   apiKey: string;
   model: string;
   systemPromptPath: string;
+  vaultPath: string;
   careEngineEnabled: boolean;
   heartbeatThreshold: number;
   theme: "light" | "dark";
@@ -36,6 +48,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   apiKey: "",
   model: "claude-sonnet-4-20250514",
   systemPromptPath: "",
+  vaultPath: "",
   careEngineEnabled: true,
   heartbeatThreshold: 30,
   theme: "dark",
@@ -47,10 +60,18 @@ export default function SettingsView() {
   const [ambient, setAmbient] = useState<AmbientWhisperSettings>({ ...DEFAULT_AMBIENT_SETTINGS });
   const [status, setStatus] = useState<string>("");
 
+  // Vault loading state
+  const [vaultLoadMode, setVaultLoadModeState] = useState<VaultLoadMode>("all");
+  const [autoLoadFiles, setAutoLoadFilesState] = useState<string[]>([]);
+  const [allVaultFiles, setAllVaultFiles] = useState<VaultFile[]>([]);
+  const [vaultTokenEstimate, setVaultTokenEstimate] = useState<number>(0);
+  const [specificTokenEstimate, setSpecificTokenEstimate] = useState<number>(0);
+
   useEffect(() => {
     loadSettings();
     setCare(getCareSettings());
     setAmbient(getAmbientSettings());
+    loadVaultSettings();
   }, []);
 
   async function loadSettings() {
@@ -59,6 +80,7 @@ export default function SettingsView() {
       const encryptedKey = await getSetting("apiKey");
       const model = await getSetting("model");
       const systemPromptPath = await getSetting("systemPromptPath");
+      const vaultPath = await getSetting("vaultPath");
       const careEngineEnabled = await getSetting("careEngineEnabled");
       const heartbeatThreshold = await getSetting("heartbeatThreshold");
       const theme = await getSetting("theme");
@@ -73,12 +95,33 @@ export default function SettingsView() {
         apiKey,
         model: model ?? DEFAULT_SETTINGS.model,
         systemPromptPath: systemPromptPath ?? DEFAULT_SETTINGS.systemPromptPath,
+        vaultPath: vaultPath ?? DEFAULT_SETTINGS.vaultPath,
         careEngineEnabled: careEngineEnabled !== null ? careEngineEnabled === "true" : DEFAULT_SETTINGS.careEngineEnabled,
         heartbeatThreshold: heartbeatThreshold !== null ? parseInt(heartbeatThreshold, 10) : DEFAULT_SETTINGS.heartbeatThreshold,
         theme: (theme as "light" | "dark") ?? DEFAULT_SETTINGS.theme,
       });
     } catch {
       setStatus("Failed to load settings");
+    }
+  }
+
+  async function loadVaultSettings() {
+    try {
+      const mode = await getVaultLoadMode();
+      setVaultLoadModeState(mode);
+      const files = await getAutoLoadFiles();
+      setAutoLoadFilesState(files);
+
+      // Load all vault files for token estimation and file picker
+      const all = await listFiles();
+      setAllVaultFiles(all);
+      setVaultTokenEstimate(estimateVaultTokens(all));
+
+      // Estimate tokens for specific file selection
+      const specificFiles = all.filter((f) => files.includes(f.path));
+      setSpecificTokenEstimate(estimateVaultTokens(specificFiles));
+    } catch {
+      // Vault settings load failed — use defaults
     }
   }
 
@@ -89,6 +132,7 @@ export default function SettingsView() {
       await setSetting("provider", settings.provider);
       await setSetting("model", settings.model);
       await setSetting("systemPromptPath", settings.systemPromptPath);
+      await setSetting("vaultPath", settings.vaultPath);
       await setSetting("careEngineEnabled", String(settings.careEngineEnabled));
       await setSetting("heartbeatThreshold", String(settings.heartbeatThreshold));
       await setSetting("theme", settings.theme);
@@ -102,6 +146,10 @@ export default function SettingsView() {
       await saveCareSettings(care);
       await saveAmbientSettings(ambient);
 
+      // Save vault loading settings
+      await setVaultLoadMode(vaultLoadMode);
+      await setAutoLoadFiles(autoLoadFiles);
+
       setStatus("Settings saved");
       setTimeout(() => setStatus(""), 2000);
     } catch {
@@ -111,6 +159,39 @@ export default function SettingsView() {
 
   function updateField<K extends keyof SettingsState>(key: K, value: SettingsState[K]) {
     setSettings((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function browseVaultPath() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Vault Directory",
+      });
+      if (selected && typeof selected === "string") {
+        updateField("vaultPath", selected);
+      }
+    } catch {
+      // Dialog cancelled or failed
+    }
+  }
+
+  function toggleAutoLoadFile(path: string) {
+    setAutoLoadFilesState((prev) => {
+      const next = prev.includes(path)
+        ? prev.filter((p) => p !== path)
+        : [...prev, path];
+      // Update specific token estimate
+      const specificFiles = allVaultFiles.filter((f) => next.includes(f.path));
+      setSpecificTokenEstimate(estimateVaultTokens(specificFiles));
+      return next;
+    });
+  }
+
+  function formatTokens(count: number): string {
+    if (count >= 1_000_000) return `~${(count / 1_000_000).toFixed(1)}M tokens`;
+    if (count >= 1_000) return `~${(count / 1_000).toFixed(1)}K tokens`;
+    return `~${count} tokens`;
   }
 
   return (
@@ -165,6 +246,108 @@ export default function SettingsView() {
             className="mt-1 block w-full bg-anchor-surface border border-anchor-border rounded px-3 py-2 text-sm text-anchor-text"
           />
         </label>
+
+        <div className="block">
+          <span className="text-sm text-anchor-muted">Vault Directory Path</span>
+          <div className="flex gap-2 mt-1">
+            <input
+              type="text"
+              value={settings.vaultPath}
+              onChange={(e) => updateField("vaultPath", e.target.value)}
+              placeholder="Leave empty to use default vault"
+              className="flex-1 bg-anchor-surface border border-anchor-border rounded px-3 py-2 text-sm text-anchor-text"
+            />
+            <button
+              onClick={() => void browseVaultPath()}
+              className="px-3 py-2 text-sm bg-anchor-surface border border-anchor-border rounded hover:border-anchor-accent/50 text-anchor-muted hover:text-anchor-text transition-colors"
+            >
+              Browse
+            </button>
+          </div>
+          <p className="text-xs text-anchor-muted/60 mt-1">
+            Point to an existing vault directory (e.g., your Obsidian vault)
+          </p>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-anchor-muted uppercase tracking-wide">Vault Loading</h3>
+        <p className="text-xs text-anchor-muted">
+          Controls which vault files are injected as context for every conversation.
+        </p>
+
+        <div className="space-y-2">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="vaultLoadMode"
+              checked={vaultLoadMode === "all"}
+              onChange={() => setVaultLoadModeState("all")}
+              className="accent-purple-500"
+            />
+            <div>
+              <span className="text-sm">Load all vault files (recommended)</span>
+              {allVaultFiles.length > 0 && (
+                <span className="text-xs text-anchor-muted ml-2">
+                  {allVaultFiles.length} file{allVaultFiles.length !== 1 ? "s" : ""} · {formatTokens(vaultTokenEstimate)}
+                </span>
+              )}
+            </div>
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="radio"
+              name="vaultLoadMode"
+              checked={vaultLoadMode === "specific"}
+              onChange={() => setVaultLoadModeState("specific")}
+              className="accent-purple-500"
+            />
+            <div>
+              <span className="text-sm">Load specific files only</span>
+              {vaultLoadMode === "specific" && autoLoadFiles.length > 0 && (
+                <span className="text-xs text-anchor-muted ml-2">
+                  {autoLoadFiles.length} selected · {formatTokens(specificTokenEstimate)}
+                </span>
+              )}
+            </div>
+          </label>
+        </div>
+
+        {vaultLoadMode === "specific" && (
+          <div className="space-y-1 max-h-48 overflow-y-auto rounded border border-anchor-border p-2 bg-anchor-bg/50">
+            {allVaultFiles.length === 0 ? (
+              <p className="text-xs text-anchor-muted/60 py-2 text-center">No vault files found.</p>
+            ) : (
+              allVaultFiles.map((file) => (
+                <label key={file.path} className="flex items-center gap-2 py-0.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={autoLoadFiles.includes(file.path)}
+                    onChange={() => toggleAutoLoadFile(file.path)}
+                    className="rounded border-anchor-border accent-purple-500"
+                  />
+                  <span className="text-xs text-anchor-text truncate" title={file.path}>
+                    {file.path}
+                  </span>
+                  <span className="text-xs text-anchor-muted/50 shrink-0">
+                    {formatTokens(estimateVaultTokens([file]))}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+        )}
+
+        <div className="rounded bg-anchor-surface/50 border border-anchor-border px-3 py-2">
+          <span className="text-xs text-anchor-muted">
+            Estimated context cost:{" "}
+            <span className="text-anchor-text font-mono">
+              {formatTokens(vaultLoadMode === "all" ? vaultTokenEstimate : specificTokenEstimate)}
+            </span>
+            {" "}per message
+          </span>
+        </div>
       </section>
 
       <section className="space-y-4">
