@@ -22,7 +22,7 @@ export {
   type ScheduledReminder,
 } from "./reminders";
 
-export { parseWhispers, scheduleWhispers } from "./whisper";
+export { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "./whisper";
 
 export {
   createAftercareState,
@@ -44,3 +44,23 @@ export {
 } from "./notifications";
 
 export { getVariedText } from "./varied-text";
+
+export {
+  pushWhisper,
+  dismissWhisper,
+  onWhisperEvent,
+  getWhisperHistory,
+  getVisibleWhispers,
+  clearWhispers,
+} from "./whisper-manager";
+
+export {
+  loadAmbientSettings,
+  saveAmbientSettings,
+  getAmbientSettings,
+  resetAmbientSession,
+  ambientWhisperTick,
+  DEFAULT_AMBIENT_SETTINGS,
+  type AmbientFrequency,
+  type AmbientWhisperSettings,
+} from "./ambient-whisper";

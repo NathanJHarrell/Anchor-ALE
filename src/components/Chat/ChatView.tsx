@@ -17,8 +17,9 @@ import StreamingMessage from "./StreamingMessage";
 import ThinkingIndicator from "./ThinkingIndicator";
 import InputBar from "./InputBar";
 import CareNotifications from "./CareNotifications";
-import { parseWhispers, scheduleWhispers } from "../../lib/care/whisper";
+import { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "../../lib/care/whisper";
 import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
+import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
 import { addDate } from "../../lib/database";
 import {
   createAftercareState,
@@ -92,6 +93,19 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       // History load failed — start fresh display
     }
   }, []);
+
+  // ── Listen for session-changed events from App ────────────────
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const session = (e as CustomEvent<Session>).detail;
+      if (session) {
+        void doSwitchSession(session);
+      }
+    };
+    window.addEventListener("session-changed", handler);
+    return () => window.removeEventListener("session-changed", handler);
+  }, [doSwitchSession]);
 
   // ── Auto-scroll ─────────────────────────────────────────────────
 
@@ -304,17 +318,34 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
         if (!abortRef.current && accumulated) {
           // Parse whisper tags from AI response
-          const { cleaned, whispers } = parseWhispers(accumulated);
+          const { cleaned, whispers, immediateWhispers } = parseWhispers(accumulated);
           if (whispers.length > 0) {
             scheduleWhispers(whispers);
           }
+          if (immediateWhispers.length > 0) {
+            fireImmediateWhispers(immediateWhispers);
+          }
+
+          // Parse [SESSION_NAME] tags from AI response
+          const { cleaned: afterNameStrip, sessionName } = parseSessionName(cleaned || accumulated);
+          if (sessionName && currentSession) {
+            applySessionName(currentSession.id, sessionName).then(() => {
+              setCurrentSession((prev) => prev ? { ...prev, name: sessionName.name } : prev);
+              setStatusMessages((prev) => [
+                ...prev,
+                { content: `Session named: ${sessionName.name}`, timestamp: Date.now() },
+              ]);
+              // Notify App-level session list to refresh
+              window.dispatchEvent(new CustomEvent("session-renamed", { detail: { id: currentSession.id, name: sessionName.name } }));
+            }).catch(() => {});
+          }
 
           // Parse [DATE_ADD] tags from AI response
-          const dateRequests = parseDateAdds(cleaned || accumulated);
+          const dateRequests = parseDateAdds(afterNameStrip || cleaned || accumulated);
           if (dateRequests.length > 0) {
             setPendingDates(dateRequests);
           }
-          const afterDateStrip = stripDateAdds(cleaned || accumulated);
+          const afterDateStrip = stripDateAdds(afterNameStrip || cleaned || accumulated);
 
           const finalContent = afterDateStrip || accumulated;
           const assistantMsg: DisplayMessage = {

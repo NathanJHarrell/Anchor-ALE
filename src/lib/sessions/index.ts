@@ -17,3 +17,16 @@ export {
 } from "./persistence";
 
 export { buildSessionContext } from "./context";
+
+export {
+  parseSessionName,
+  stripSessionName,
+  applySessionName,
+} from "./naming";
+
+export {
+  searchMessages,
+  getSessionSummary,
+  exportSession,
+  listArchivedSessions,
+} from "./archive";

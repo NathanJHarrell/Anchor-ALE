@@ -13,6 +13,13 @@ import {
   type ReminderTone,
 } from "../../lib/care/reminders";
 import DatesManager from "./DatesManager";
+import {
+  getAmbientSettings,
+  saveAmbientSettings,
+  DEFAULT_AMBIENT_SETTINGS,
+  type AmbientWhisperSettings,
+  type AmbientFrequency,
+} from "../../lib/care/ambient-whisper";
 
 interface SettingsState {
   provider: Provider;
@@ -37,11 +44,13 @@ const DEFAULT_SETTINGS: SettingsState = {
 export default function SettingsView() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [care, setCare] = useState<CareSettings>({ ...DEFAULT_CARE_SETTINGS });
+  const [ambient, setAmbient] = useState<AmbientWhisperSettings>({ ...DEFAULT_AMBIENT_SETTINGS });
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
     loadSettings();
     setCare(getCareSettings());
+    setAmbient(getAmbientSettings());
   }, []);
 
   async function loadSettings() {
@@ -91,6 +100,7 @@ export default function SettingsView() {
 
       // Save care engine settings
       await saveCareSettings(care);
+      await saveAmbientSettings(ambient);
 
       setStatus("Settings saved");
       setTimeout(() => setStatus(""), 2000);
@@ -305,6 +315,52 @@ export default function SettingsView() {
             );
           })}
         </div>
+      </section>
+
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-anchor-muted uppercase tracking-wide">Ambient Whispers</h3>
+        <p className="text-xs text-anchor-muted">
+          Companion-initiated thoughts that appear as gentle toasts outside the conversation.
+        </p>
+
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={ambient.enabled}
+            onChange={(e) => setAmbient((prev) => ({ ...prev, enabled: e.target.checked }))}
+            className="rounded border-anchor-border"
+          />
+          <span className="text-sm">Enable ambient whispers</span>
+        </label>
+
+        <div className="space-y-2">
+          <span className="text-xs text-anchor-muted">Frequency</span>
+          <div className="flex gap-2">
+            {(["rare", "sometimes", "often"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setAmbient((prev) => ({ ...prev, frequency: f as AmbientFrequency }))}
+                className={`px-3 py-1.5 text-xs rounded border transition-colors ${
+                  ambient.frequency === f
+                    ? "border-purple-500 bg-purple-500/10 text-purple-400"
+                    : "border-anchor-border text-anchor-muted hover:text-anchor-text"
+                }`}
+              >
+                {f === "rare" ? "Rare (~1/50min)" : f === "sometimes" ? "Sometimes (~1/20min)" : "Often (~1/10min)"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={ambient.soundEnabled}
+            onChange={(e) => setAmbient((prev) => ({ ...prev, soundEnabled: e.target.checked }))}
+            className="rounded border-anchor-border"
+          />
+          <span className="text-sm text-anchor-muted">Play sound on whisper <span className="text-xs">(coming soon)</span></span>
+        </label>
       </section>
 
       <section className="space-y-4">

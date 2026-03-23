@@ -9,9 +9,12 @@
 //   HH:MM — specific time today (or tomorrow if already past)
 
 import { addWhisperReminder } from "./engine";
+import { pushWhisper } from "./whisper-manager";
 import type { ScheduledReminder } from "./reminders";
+import type { WhisperToast } from "../types";
 
-const WHISPER_PATTERN = /\[REMIND:\s*([^\]|]+?)\s*\|\s*([^\]]+?)\s*\]/g;
+const REMIND_PATTERN = /\[REMIND:\s*([^\]|]+?)\s*\|\s*([^\]]+?)\s*\]/g;
+const WHISPER_PATTERN = /\[WHISPER:\s*([^\]]+?)\s*\]/g;
 
 export interface ParsedWhisper {
   timeSpec: string;
@@ -19,16 +22,27 @@ export interface ParsedWhisper {
   fireAt: number;
 }
 
+export interface ParsedImmediateWhisper {
+  message: string;
+}
+
 /**
  * Scan an AI response string for whisper tags.
- * Returns the cleaned text (tags removed) and any parsed reminders.
+ * Returns the cleaned text (tags removed), parsed reminders, and immediate whispers.
+ *
+ * [REMIND: time | message] — scheduled reminder (existing behavior)
+ * [WHISPER: message]        — immediate toast, fires right now
  */
 export function parseWhispers(text: string): {
   cleaned: string;
   whispers: ParsedWhisper[];
+  immediateWhispers: ParsedImmediateWhisper[];
 } {
   const whispers: ParsedWhisper[] = [];
-  const cleaned = text.replace(WHISPER_PATTERN, (_match, timeSpec: string, message: string) => {
+  const immediateWhispers: ParsedImmediateWhisper[] = [];
+
+  // Strip [REMIND: ...] tags
+  let cleaned = text.replace(REMIND_PATTERN, (_match, timeSpec: string, message: string) => {
     const fireAt = resolveTime(timeSpec.trim());
     if (fireAt > 0) {
       whispers.push({ timeSpec: timeSpec.trim(), message: message.trim(), fireAt });
@@ -36,7 +50,30 @@ export function parseWhispers(text: string): {
     return "";
   });
 
-  return { cleaned: cleaned.trim(), whispers };
+  // Strip [WHISPER: ...] tags
+  cleaned = cleaned.replace(WHISPER_PATTERN, (_match, message: string) => {
+    immediateWhispers.push({ message: message.trim() });
+    return "";
+  });
+
+  return { cleaned: cleaned.trim(), whispers, immediateWhispers };
+}
+
+/**
+ * Fire immediate whispers as toasts. Call after parseWhispers().
+ */
+export function fireImmediateWhispers(whispers: ParsedImmediateWhisper[]): void {
+  const now = Date.now();
+  for (const w of whispers) {
+    const toast: WhisperToast = {
+      id: `companion-${now}-${Math.random().toString(36).slice(2, 8)}`,
+      message: w.message,
+      type: "companion",
+      timestamp: now,
+      duration: 6_000,
+    };
+    pushWhisper(toast);
+  }
 }
 
 /**

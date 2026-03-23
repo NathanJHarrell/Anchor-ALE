@@ -13,6 +13,7 @@ import {
   type ReminderConfig,
 } from "./reminders";
 import { checkDates, type DateNotification } from "../dates/engine";
+import { ambientWhisperTick } from "./ambient-whisper";
 
 export type CareNotification = {
   id: string;
@@ -170,6 +171,9 @@ function tick(): void {
     lastDateCheckDay = todayDay;
     void runDateChecks(now);
   }
+
+  // Ambient whisper check
+  void ambientWhisperTick();
 }
 
 async function runDateChecks(now: number): Promise<void> {
