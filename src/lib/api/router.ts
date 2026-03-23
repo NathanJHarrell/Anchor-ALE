@@ -21,7 +21,7 @@ export async function loadAPIConfig(): Promise<APIConfig> {
   if (!encryptedKey) throw new Error("No API key set. Add your key in Settings.");
   if (!model) throw new Error("No model selected. Choose a model in Settings.");
 
-  const apiKey = await invoke<string>("decrypt_string", { input: encryptedKey });
+  const apiKey = await invoke<string>("decrypt_string", { ciphertext: encryptedKey });
 
   return {
     provider: provider as Provider,
