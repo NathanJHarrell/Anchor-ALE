@@ -1,4 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
+import { Webview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import NavigationBar from "./NavigationBar";
 import DateLauncher from "./DateLauncher";
 import BrowserChatPanel from "./BrowserChatPanel";
@@ -38,7 +41,115 @@ export default function BrowserView() {
   // AI navigation suggestions from chat
   const [aiSuggestion, setAiSuggestion] = useState<string | null>(null);
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  // Native webview refs
+  const webviewRef = useRef<Webview | null>(null);
+  const slotRef = useRef<HTMLDivElement>(null);
+  const webviewIdRef = useRef(0);
+
+  // ── Native webview management ──────────────────────────────
+
+  const closeWebview = useCallback(async () => {
+    if (webviewRef.current) {
+      try {
+        await webviewRef.current.close();
+      } catch {
+        // Already closed or never fully created
+      }
+      webviewRef.current = null;
+    }
+  }, []);
+
+  const openWebview = useCallback(async (url: string) => {
+    await closeWebview();
+
+    // Small delay to ensure the slot div has rendered and has correct bounds
+    await new Promise((r) => setTimeout(r, 50));
+
+    const slot = slotRef.current;
+    if (!slot) return;
+
+    const rect = slot.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+
+    const label = `browser-${++webviewIdRef.current}`;
+    const appWindow = getCurrentWindow();
+
+    try {
+      const webview = new Webview(appWindow, label, {
+        url,
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+      });
+
+      webview.once("tauri://created", () => {
+        setIsLoading(false);
+      });
+
+      webview.once("tauri://error", () => {
+        setIsLoading(false);
+      });
+
+      webviewRef.current = webview;
+    } catch (err) {
+      console.error("Failed to create webview:", err);
+      setIsLoading(false);
+    }
+  }, [closeWebview]);
+
+  const updateWebviewBounds = useCallback(async () => {
+    const webview = webviewRef.current;
+    const slot = slotRef.current;
+    if (!webview || !slot) return;
+
+    const rect = slot.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+
+    try {
+      await webview.setPosition(new LogicalPosition(rect.left, rect.top));
+      await webview.setSize(new LogicalSize(rect.width, rect.height));
+    } catch {
+      // Webview may have been closed
+    }
+  }, []);
+
+  // Reposition webview when layout changes (split ratio, chat toggle, window resize)
+  useEffect(() => {
+    void updateWebviewBounds();
+  }, [splitRatio, chatOpen, updateWebviewBounds]);
+
+  // ResizeObserver on the slot div for window resizes and layout shifts
+  useEffect(() => {
+    const slot = slotRef.current;
+    if (!slot) return;
+
+    const observer = new ResizeObserver(() => {
+      void updateWebviewBounds();
+    });
+    observer.observe(slot);
+
+    return () => observer.disconnect();
+  }, [updateWebviewBounds]);
+
+  // Open/close webview when URL changes
+  useEffect(() => {
+    if (currentUrl && currentUrl !== HOME_URL) {
+      void openWebview(currentUrl);
+    } else {
+      void closeWebview();
+    }
+  }, [currentUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup on unmount — close the native webview
+  useEffect(() => {
+    return () => {
+      if (webviewRef.current) {
+        webviewRef.current.close().catch(() => {});
+        webviewRef.current = null;
+      }
+    };
+  }, []);
 
   // ── Navigation ───────────────────────────────────────────────
 
@@ -58,8 +169,7 @@ export default function BrowserView() {
       });
       setHistoryIndex((prev) => prev + 1);
 
-      const title = url;
-      void addBrowserHistory(url, title);
+      void addBrowserHistory(url, url);
     },
     [historyIndex]
   );
@@ -83,18 +193,15 @@ export default function BrowserView() {
   }, [history, historyIndex]);
 
   const refresh = useCallback(() => {
-    if (iframeRef.current && currentUrl) {
+    if (currentUrl) {
       setIsLoading(true);
-      iframeRef.current.src = currentUrl;
+      // Close and reopen to refresh
+      void openWebview(currentUrl);
     }
-  }, [currentUrl]);
+  }, [currentUrl, openWebview]);
 
   const goHome = useCallback(() => {
     setCurrentUrl(HOME_URL);
-  }, []);
-
-  const handleIframeLoad = useCallback(() => {
-    setIsLoading(false);
   }, []);
 
   // ── Content extraction & sharing ─────────────────────────────
@@ -106,7 +213,6 @@ export default function BrowserView() {
       const content = await getCurrentPageContent(currentUrl);
       const shared: SharedContent = { content, timestamp: Date.now() };
       setSharedContent((prev) => [...prev, shared]);
-      // Auto-open chat panel when sharing
       setChatOpen(true);
     } catch {
       // Extraction failed — panel will show existing context
@@ -212,14 +318,17 @@ export default function BrowserView() {
           style={{ width: showChat ? `${splitRatio * 100}%` : "100%" }}
         >
           {showBrowser ? (
-            <iframe
-              ref={iframeRef}
-              src={currentUrl}
-              onLoad={handleIframeLoad}
-              className="w-full h-full border-none bg-white"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-presentation"
-              title="Anchor Browser"
-            />
+            /* Slot div — the native Tauri webview overlays this exact area */
+            <div
+              ref={slotRef}
+              className="w-full h-full bg-anchor-bg"
+            >
+              {isLoading && (
+                <div className="flex items-center justify-center h-full text-anchor-muted text-sm">
+                  Loading...
+                </div>
+              )}
+            </div>
           ) : (
             <DateLauncher onNavigate={navigateTo} />
           )}
@@ -246,7 +355,7 @@ export default function BrowserView() {
         )}
       </div>
 
-      {/* Drag overlay to prevent iframe from stealing mouse events */}
+      {/* Drag overlay to prevent native webview from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
     </div>
   );
