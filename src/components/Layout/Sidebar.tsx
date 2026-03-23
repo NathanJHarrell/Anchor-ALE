@@ -1,3 +1,5 @@
+import PresenceIndicator from "./PresenceIndicator";
+
 type View = "chat" | "browser" | "vault" | "settings";
 
 interface SidebarProps {
@@ -42,8 +44,9 @@ export default function Sidebar({ activeView, onNavigate, onAbout }: SidebarProp
         ))}
       </div>
 
-      <div className="p-4 border-t border-anchor-border">
+      <div className="p-4 border-t border-anchor-border flex items-center justify-between">
         <div className="text-xs text-anchor-muted">v0.1.0</div>
+        <PresenceIndicator />
       </div>
     </nav>
   );

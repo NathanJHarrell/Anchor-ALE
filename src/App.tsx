@@ -11,6 +11,8 @@ import {
   onCareNotification,
 } from "./lib/care/engine";
 import { pushNotification } from "./lib/care/notifications";
+import { startPresenceTracking, stopPresenceTracking } from "./lib/presence/tracker";
+import { startPresenceInjector, stopPresenceInjector } from "./lib/presence/injector";
 
 type View = "chat" | "browser" | "vault" | "settings";
 
@@ -19,13 +21,17 @@ export default function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  // Start care engine on mount, stop on unmount
+  // Start care engine + presence tracking on mount, stop on unmount
   useEffect(() => {
     startCareEngine().catch(() => {});
+    startPresenceTracking().catch(() => {});
+    startPresenceInjector();
     const unsub = onCareNotification(pushNotification);
     return () => {
       unsub();
       stopCareEngine();
+      stopPresenceInjector();
+      stopPresenceTracking();
     };
   }, []);
 
