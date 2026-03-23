@@ -42,6 +42,56 @@ body {
     sans-serif;
 }
 
+/* Markdown rendering inside chat bubbles */
+.markdown-body p { margin: 0.25em 0; }
+.markdown-body p:first-child { margin-top: 0; }
+.markdown-body p:last-child { margin-bottom: 0; }
+
+.markdown-body h1 { font-size: 1rem; font-weight: 700; margin: 0.5em 0 0.25em; }
+.markdown-body h2 { font-size: 0.875rem; font-weight: 600; margin: 0.5em 0 0.25em; }
+.markdown-body h3 { font-size: 0.8125rem; font-weight: 600; margin: 0.4em 0 0.2em; }
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 { font-size: 0.8125rem; font-weight: 500; margin: 0.4em 0 0.2em; }
+
+.markdown-body pre {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0.5rem;
+  padding: 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  overflow-x: auto;
+  margin: 0.375em 0;
+}
+.markdown-body pre code { background: none; padding: 0; }
+
+.markdown-body code {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.markdown-body ul,
+.markdown-body ol { padding-left: 1rem; margin: 0.25em 0; }
+.markdown-body li { margin: 0.125em 0; }
+
+.markdown-body blockquote {
+  border-left: 2px solid rgba(147, 51, 234, 0.5);
+  padding-left: 0.75rem;
+  font-style: italic;
+  margin: 0.375em 0;
+}
+
+.markdown-assistant a { color: var(--color-anchor-accent); text-decoration: underline; }
+
+/* User bubble overrides for white-on-purple readability */
+.markdown-user pre,
+.markdown-user code { background: rgba(255, 255, 255, 0.1); }
+.markdown-user a { color: white; text-decoration: underline; }
+.markdown-user blockquote { border-left-color: rgba(255, 255, 255, 0.4); }
+
 @keyframes careSlideIn {
   from {
     opacity: 0;

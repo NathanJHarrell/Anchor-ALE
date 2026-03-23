@@ -78,6 +78,7 @@ export default function InputBar({ onSend, disabled }: InputBarProps) {
           Send
         </button>
       </div>
+      <div className="text-[10px] text-anchor-muted mt-1">Markdown supported</div>
       {text.length > MAX_CHARS * 0.8 && (
         <div className="text-[10px] text-anchor-muted mt-1 text-right">
           {text.length.toLocaleString()} / {MAX_CHARS.toLocaleString()}
