@@ -18,13 +18,13 @@ function estimateTokenCount(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
-/** Persist a display message to SQLite. */
-export async function saveMessage(sessionId: string, msg: DisplayMessage): Promise<void> {
+/** Persist a display message to SQLite. Optional timestamp override for imports. */
+export async function saveMessage(sessionId: string, msg: DisplayMessage, timestamp?: number): Promise<void> {
   const tokens = estimateTokenCount(msg.content);
   const imagesJson = msg.images && msg.images.length > 0
     ? JSON.stringify(msg.images.map((img) => ({ media_type: img.media_type, data: img.data })))
     : null;
-  await addSessionMessage(sessionId, msg.role as SessionMessage["role"], msg.content, tokens, imagesJson);
+  await addSessionMessage(sessionId, msg.role as SessionMessage["role"], msg.content, tokens, imagesJson, timestamp);
 }
 
 /** Load recent message history for a session, converted to DisplayMessage format. */

@@ -10,6 +10,7 @@ import { getPresenceState } from "../presence/tracker";
 import { getActiveSession } from "../sessions/manager";
 import { getSetting } from "../database";
 import { pushWhisper } from "./whisper-manager";
+import { shouldSendToPhone, trySendToPhone } from "../whisper/phone-manager";
 import type { WhisperToast } from "../types";
 
 // ── Settings ─────────────────────────────────────────────────────
@@ -83,8 +84,10 @@ export async function ambientWhisperTick(): Promise<void> {
   const now = Date.now();
   const presence = getPresenceState();
 
-  // Only whisper when human is active
-  if (presence.status !== "active") return;
+  // Whisper when human is active, or route to phone if away
+  const isAway = presence.status === "away" || presence.status === "idle";
+  if (presence.status === "closed") return;
+  if (!isAway && presence.status !== "active") return;
 
   // Must have been active for at least 20 minutes
   const activeMs = now - sessionStartTime;
@@ -104,15 +107,20 @@ export async function ambientWhisperTick(): Promise<void> {
 
     lastWhisperTime = now;
 
-    const toast: WhisperToast = {
-      id: `ambient-${now}`,
-      message,
-      type: "ambient",
-      timestamp: now,
-      duration: 6_000,
-    };
+    // Route to phone if app is not focused, otherwise show toast
+    if (shouldSendToPhone()) {
+      await trySendToPhone(message);
+    } else {
+      const toast: WhisperToast = {
+        id: `ambient-${now}`,
+        message,
+        type: "ambient",
+        timestamp: now,
+        duration: 6_000,
+      };
 
-    pushWhisper(toast);
+      pushWhisper(toast);
+    }
   } catch {
     // Silent fail — ambient whispers are non-critical
   }

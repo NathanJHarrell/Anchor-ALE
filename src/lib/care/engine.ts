@@ -14,6 +14,7 @@ import {
 } from "./reminders";
 import { checkDates, type DateNotification } from "../dates/engine";
 import { ambientWhisperTick } from "./ambient-whisper";
+import { companionMessageTick } from "./companion-messages";
 
 export type CareNotification = {
   id: string;
@@ -174,6 +175,9 @@ function tick(): void {
 
   // Ambient whisper check
   void ambientWhisperTick();
+
+  // Companion-initiated message check
+  void companionMessageTick();
 }
 
 async function runDateChecks(now: number): Promise<void> {

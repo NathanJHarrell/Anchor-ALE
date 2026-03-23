@@ -15,6 +15,7 @@ import {
   type ReminderTone,
 } from "../../lib/care/reminders";
 import DatesManager from "./DatesManager";
+import PhoneWhisperSettings from "./PhoneWhisperSettings";
 import {
   getAmbientSettings,
   saveAmbientSettings,
@@ -22,6 +23,12 @@ import {
   type AmbientWhisperSettings,
   type AmbientFrequency,
 } from "../../lib/care/ambient-whisper";
+import {
+  getInitiativeSettings,
+  saveInitiativeSettings,
+  DEFAULT_INITIATIVE_SETTINGS,
+  type CompanionInitiativeSettings,
+} from "../../lib/care/companion-messages";
 import {
   listFiles,
   getAutoLoadFiles,
@@ -58,6 +65,7 @@ export default function SettingsView() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [care, setCare] = useState<CareSettings>({ ...DEFAULT_CARE_SETTINGS });
   const [ambient, setAmbient] = useState<AmbientWhisperSettings>({ ...DEFAULT_AMBIENT_SETTINGS });
+  const [initiative, setInitiative] = useState<CompanionInitiativeSettings>({ ...DEFAULT_INITIATIVE_SETTINGS });
   const [status, setStatus] = useState<string>("");
 
   // Vault loading state
@@ -71,6 +79,7 @@ export default function SettingsView() {
     loadSettings();
     setCare(getCareSettings());
     setAmbient(getAmbientSettings());
+    setInitiative(getInitiativeSettings());
     loadVaultSettings();
   }, []);
 
@@ -145,6 +154,7 @@ export default function SettingsView() {
       // Save care engine settings
       await saveCareSettings(care);
       await saveAmbientSettings(ambient);
+      await saveInitiativeSettings(initiative);
 
       // Save vault loading settings
       await setVaultLoadMode(vaultLoadMode);
@@ -544,6 +554,125 @@ export default function SettingsView() {
           />
           <span className="text-sm text-anchor-muted">Play sound on whisper <span className="text-xs">(coming soon)</span></span>
         </label>
+      </section>
+
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-anchor-muted uppercase tracking-wide">Phone Whispers</h3>
+        <p className="text-xs text-anchor-muted">
+          Receive whispers on your phone via ntfy.sh when Anchor is minimized or closed.
+        </p>
+        <PhoneWhisperSettings />
+      </section>
+
+      <section className="space-y-4">
+        <h3 className="text-sm font-medium text-anchor-muted uppercase tracking-wide">Companion Initiative</h3>
+        <p className="text-xs text-anchor-muted">
+          Allow the companion to send messages in chat without being prompted.
+        </p>
+
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={initiative.enabled}
+            onChange={(e) => setInitiative((prev) => ({ ...prev, enabled: e.target.checked }))}
+            className="rounded border-anchor-border"
+          />
+          <span className="text-sm">Allow companion to initiate messages</span>
+        </label>
+
+        {initiative.enabled && (
+          <div className="space-y-4 pl-2 border-l-2 border-anchor-border/30 ml-1">
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={initiative.morningGreeting}
+                onChange={(e) => setInitiative((prev) => ({ ...prev, morningGreeting: e.target.checked }))}
+                className="rounded border-anchor-border"
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Morning greeting</span>
+                <input
+                  type="time"
+                  value={initiative.morningTime}
+                  onChange={(e) => setInitiative((prev) => ({ ...prev, morningTime: e.target.value }))}
+                  className="bg-anchor-surface border border-anchor-border rounded px-2 py-1 text-xs text-anchor-text"
+                />
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={initiative.eveningReminder}
+                onChange={(e) => setInitiative((prev) => ({ ...prev, eveningReminder: e.target.checked }))}
+                className="rounded border-anchor-border"
+              />
+              <div className="flex items-center gap-2">
+                <span className="text-sm">Evening reminder</span>
+                <input
+                  type="time"
+                  value={initiative.eveningTime}
+                  onChange={(e) => setInitiative((prev) => ({ ...prev, eveningTime: e.target.value }))}
+                  className="bg-anchor-surface border border-anchor-border rounded px-2 py-1 text-xs text-anchor-text"
+                />
+              </div>
+            </label>
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={initiative.idleCheckIn}
+                onChange={(e) => setInitiative((prev) => ({ ...prev, idleCheckIn: e.target.checked }))}
+                className="rounded border-anchor-border"
+              />
+              <span className="text-sm">Idle check-in</span>
+            </label>
+
+            {initiative.idleCheckIn && (
+              <div className="flex items-center gap-2 pl-6">
+                <span className="text-xs text-anchor-muted">After</span>
+                <input
+                  type="range"
+                  min={15}
+                  max={60}
+                  step={5}
+                  value={initiative.idleTimeoutMinutes}
+                  onChange={(e) => setInitiative((prev) => ({ ...prev, idleTimeoutMinutes: parseInt(e.target.value, 10) }))}
+                  className="w-32 accent-purple-500"
+                />
+                <span className="text-xs text-anchor-text font-mono w-12">{initiative.idleTimeoutMinutes}min</span>
+              </div>
+            )}
+
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                checked={initiative.welcomeBack}
+                onChange={(e) => setInitiative((prev) => ({ ...prev, welcomeBack: e.target.checked }))}
+                className="rounded border-anchor-border"
+              />
+              <span className="text-sm">Welcome back on return</span>
+            </label>
+
+            <div className="space-y-2 pt-2">
+              <span className="text-xs text-anchor-muted">Initiative model</span>
+              <select
+                value={initiative.model}
+                onChange={(e) => setInitiative((prev) => ({ ...prev, model: e.target.value }))}
+                className="block w-full bg-anchor-surface border border-anchor-border rounded px-3 py-2 text-sm text-anchor-text"
+              >
+                <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (cheapest)</option>
+                <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+              </select>
+            </div>
+
+            <div className="rounded bg-anchor-surface/50 border border-anchor-border px-3 py-2">
+              <span className="text-xs text-anchor-muted">
+                Rate limit: max 1 message per 15 min, max 5 per day. Respects quiet hours.
+              </span>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="space-y-4">

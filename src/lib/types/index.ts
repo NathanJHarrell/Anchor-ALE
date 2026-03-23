@@ -182,3 +182,29 @@ export interface PresenceState {
   lastChange: number;
   currentSession: string | null;
 }
+
+// ── Import types ─────────────────────────────────────────────
+
+export interface NormalizedMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+}
+
+export interface NormalizedConversation {
+  name: string;
+  createdAt: number;
+  messages: NormalizedMessage[];
+}
+
+export interface ImportOptions {
+  skipEmpty: boolean;
+  maxMessagesPerSession: number;
+  deduplicate: boolean;
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}

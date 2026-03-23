@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react";
 import type { Session, SessionMessage } from "../../lib/types";
 import {
   searchMessages,
@@ -8,6 +8,8 @@ import {
   type SessionSummary,
 } from "../../lib/sessions/archive";
 import { getFullHistory, type DisplayMessage } from "../../lib/sessions";
+
+const ImportWizard = lazy(() => import("../Import/ImportWizard"));
 
 // ── Helpers ─────────────────────────────────────────────────────
 
@@ -71,6 +73,8 @@ export default function ArchiveView() {
   const [expandedSession, setExpandedSession] = useState<string | null>(null);
   const [expandedMessages, setExpandedMessages] = useState<DisplayMessage[]>([]);
   const [expandedLoading, setExpandedLoading] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sessionMap = useRef<Map<string, string>>(new Map());
@@ -106,7 +110,7 @@ export default function ArchiveView() {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [refreshKey]);
 
   // Debounced search
   const handleSearchChange = useCallback((value: string) => {
@@ -186,19 +190,27 @@ export default function ArchiveView() {
     <div className="flex flex-col h-full -m-4">
       {/* Search bar */}
       <div className="px-4 py-3 border-b border-anchor-border shrink-0">
-        <div className="max-w-2xl mx-auto relative">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => handleSearchChange(e.target.value)}
-            placeholder="Search across all sessions…"
-            className="w-full bg-anchor-bg border border-anchor-border rounded-lg px-4 py-2.5 text-sm text-anchor-text placeholder:text-anchor-muted/50 focus:outline-none focus:border-anchor-accent/50 transition-colors"
-          />
-          {searching && (
-            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-anchor-muted">
-              searching…
-            </div>
-          )}
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              placeholder="Search across all sessions…"
+              className="w-full bg-anchor-bg border border-anchor-border rounded-lg px-4 py-2.5 text-sm text-anchor-text placeholder:text-anchor-muted/50 focus:outline-none focus:border-anchor-accent/50 transition-colors"
+            />
+            {searching && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-anchor-muted">
+                searching…
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => setShowImport(true)}
+            className="shrink-0 px-3 py-2.5 text-xs font-medium text-anchor-muted hover:text-anchor-text border border-anchor-border hover:border-anchor-accent/30 rounded-lg transition-colors"
+          >
+            Import
+          </button>
         </div>
       </div>
 
@@ -366,6 +378,16 @@ export default function ArchiveView() {
           )}
         </div>
       </div>
+
+      {/* Import wizard modal */}
+      {showImport && (
+        <Suspense fallback={null}>
+          <ImportWizard
+            onClose={() => setShowImport(false)}
+            onComplete={() => setRefreshKey((k) => k + 1)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

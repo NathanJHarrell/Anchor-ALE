@@ -10,11 +10,13 @@
 
 import { addWhisperReminder } from "./engine";
 import { pushWhisper } from "./whisper-manager";
+import { shouldSendToPhone, trySendToPhone, forceSendToPhone } from "../whisper/phone-manager";
 import type { ScheduledReminder } from "./reminders";
 import type { WhisperToast } from "../types";
 
 const REMIND_PATTERN = /\[REMIND:\s*([^\]|]+?)\s*\|\s*([^\]]+?)\s*\]/g;
 const WHISPER_PATTERN = /\[WHISPER:\s*([^\]]+?)\s*\]/g;
+const PHONE_PATTERN = /\[PHONE:\s*([^\]]+?)\s*\]/g;
 
 export interface ParsedWhisper {
   timeSpec: string;
@@ -23,6 +25,10 @@ export interface ParsedWhisper {
 }
 
 export interface ParsedImmediateWhisper {
+  message: string;
+}
+
+export interface ParsedPhoneWhisper {
   message: string;
 }
 
@@ -37,9 +43,11 @@ export function parseWhispers(text: string): {
   cleaned: string;
   whispers: ParsedWhisper[];
   immediateWhispers: ParsedImmediateWhisper[];
+  phoneWhispers: ParsedPhoneWhisper[];
 } {
   const whispers: ParsedWhisper[] = [];
   const immediateWhispers: ParsedImmediateWhisper[] = [];
+  const phoneWhispers: ParsedPhoneWhisper[] = [];
 
   // Strip [REMIND: ...] tags
   let cleaned = text.replace(REMIND_PATTERN, (_match, timeSpec: string, message: string) => {
@@ -56,23 +64,43 @@ export function parseWhispers(text: string): {
     return "";
   });
 
-  return { cleaned: cleaned.trim(), whispers, immediateWhispers };
+  // Strip [PHONE: ...] tags
+  cleaned = cleaned.replace(PHONE_PATTERN, (_match, message: string) => {
+    phoneWhispers.push({ message: message.trim() });
+    return "";
+  });
+
+  return { cleaned: cleaned.trim(), whispers, immediateWhispers, phoneWhispers };
 }
 
 /**
- * Fire immediate whispers as toasts. Call after parseWhispers().
+ * Fire immediate whispers as toasts, or route to phone if app is away.
+ * Call after parseWhispers().
  */
-export function fireImmediateWhispers(whispers: ParsedImmediateWhisper[]): void {
+export async function fireImmediateWhispers(whispers: ParsedImmediateWhisper[]): Promise<void> {
   const now = Date.now();
   for (const w of whispers) {
-    const toast: WhisperToast = {
-      id: `companion-${now}-${Math.random().toString(36).slice(2, 8)}`,
-      message: w.message,
-      type: "companion",
-      timestamp: now,
-      duration: 6_000,
-    };
-    pushWhisper(toast);
+    if (shouldSendToPhone()) {
+      await trySendToPhone(w.message);
+    } else {
+      const toast: WhisperToast = {
+        id: `companion-${now}-${Math.random().toString(36).slice(2, 8)}`,
+        message: w.message,
+        type: "companion",
+        timestamp: now,
+        duration: 6_000,
+      };
+      pushWhisper(toast);
+    }
+  }
+}
+
+/**
+ * Fire [PHONE:] whispers — always send to phone regardless of app state.
+ */
+export async function firePhoneWhispers(whispers: ParsedPhoneWhisper[]): Promise<void> {
+  for (const w of whispers) {
+    await forceSendToPhone(w.message);
   }
 }
 

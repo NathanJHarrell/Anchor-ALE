@@ -382,11 +382,12 @@ export async function addSessionMessage(
   content: string,
   tokenEstimate = 0,
   imagesJson?: string | null,
+  timestamp?: number,
 ): Promise<void> {
   const database = await getDatabase();
   await database.execute(
     "INSERT INTO session_messages (session_id, role, content, timestamp, token_estimate, images_json) VALUES ($1, $2, $3, $4, $5, $6)",
-    [sessionId, role, content, Date.now(), tokenEstimate, imagesJson ?? null]
+    [sessionId, role, content, timestamp ?? Date.now(), tokenEstimate, imagesJson ?? null]
   );
 }
 

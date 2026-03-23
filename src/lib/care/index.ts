@@ -22,7 +22,7 @@ export {
   type ScheduledReminder,
 } from "./reminders";
 
-export { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "./whisper";
+export { parseWhispers, scheduleWhispers, fireImmediateWhispers, firePhoneWhispers } from "./whisper";
 
 export {
   createAftercareState,

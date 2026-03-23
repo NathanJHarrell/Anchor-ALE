@@ -16,6 +16,8 @@ import { pushNotification } from "./lib/care/notifications";
 import { startPresenceTracking, stopPresenceTracking } from "./lib/presence/tracker";
 import { startPresenceInjector, stopPresenceInjector } from "./lib/presence/injector";
 import { loadAmbientSettings, resetAmbientSession } from "./lib/care/ambient-whisper";
+import { loadPhoneWhisperSettings } from "./lib/whisper/phone-manager";
+import { loadInitiativeSettings, initCompanionMessages } from "./lib/care/companion-messages";
 import WhisperToastContainer from "./components/Whisper/WhisperToast";
 import {
   createProject,
@@ -60,7 +62,10 @@ export default function App() {
     startPresenceTracking().catch(() => {});
     startPresenceInjector();
     loadAmbientSettings().catch(() => {});
+    loadPhoneWhisperSettings().catch(() => {});
     resetAmbientSession();
+    loadInitiativeSettings().catch(() => {});
+    initCompanionMessages();
     const unsub = onCareNotification(pushNotification);
     return () => {
       unsub();

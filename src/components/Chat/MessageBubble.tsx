@@ -12,6 +12,7 @@ interface MessageBubbleProps {
   content: string;
   timestamp: number;
   images?: MessageImage[];
+  companionInitiated?: boolean;
 }
 
 function formatTime(ts: number): string {
@@ -19,7 +20,7 @@ function formatTime(ts: number): string {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export default function MessageBubble({ role, content, timestamp, images }: MessageBubbleProps) {
+export default function MessageBubble({ role, content, timestamp, images, companionInitiated }: MessageBubbleProps) {
   const isUser = role === "user";
   const [expandedImage, setExpandedImage] = useState<string | null>(null);
 
@@ -38,7 +39,9 @@ export default function MessageBubble({ role, content, timestamp, images }: Mess
           className={`max-w-[75%] rounded-2xl px-4 py-2.5 break-words text-sm leading-relaxed ${
             isUser
               ? "bg-anchor-accent/90 text-white rounded-tr-sm"
-              : "bg-anchor-surface border border-anchor-border text-anchor-text rounded-tl-sm"
+              : companionInitiated
+                ? "bg-anchor-surface/60 border border-anchor-border/40 text-anchor-text rounded-tl-sm"
+                : "bg-anchor-surface border border-anchor-border text-anchor-text rounded-tl-sm"
           }`}
         >
           {/* Images above text */}
@@ -60,6 +63,9 @@ export default function MessageBubble({ role, content, timestamp, images }: Mess
           )}
 
           <div className={`markdown-body ${isUser ? "markdown-user" : "markdown-assistant"}`}>
+            {companionInitiated && (
+              <span className="text-anchor-muted/60 text-xs mr-1 select-none">✧</span>
+            )}
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
           </div>
           <div

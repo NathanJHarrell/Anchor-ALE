@@ -101,13 +101,34 @@ async fn fetch_page_html(url: String) -> Result<String, String> {
     resp.text().await.map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn send_ntfy(topic: String, message: String) -> Result<(), String> {
+    let url = format!("https://ntfy.sh/{}", topic);
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post(&url)
+        .header("Content-Type", "text/plain")
+        .body(message)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    if resp.status().is_success() {
+        Ok(())
+    } else {
+        Err(format!("ntfy returned status {}", resp.status()))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_string, decrypt_string, fetch_page_html])
+        .invoke_handler(tauri::generate_handler![encrypt_string, decrypt_string, fetch_page_html, send_ntfy])
         .setup(|_app| {
             Ok(())
         })

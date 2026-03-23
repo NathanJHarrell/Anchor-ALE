@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { sendMessage, loadAPIConfig } from "../../lib/api/router";
-import { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "../../lib/care/whisper";
+import { parseWhispers, scheduleWhispers, fireImmediateWhispers, firePhoneWhispers } from "../../lib/care/whisper";
 import {
   getActiveSession,
   saveMessage,
@@ -164,9 +164,10 @@ export default function BrowserChatPanel({ sharedContent }: BrowserChatPanelProp
 
       if (!abortRef.current && accumulated) {
         // Parse whisper/remind tags
-        const { cleaned, whispers, immediateWhispers } = parseWhispers(accumulated);
+        const { cleaned, whispers, immediateWhispers, phoneWhispers } = parseWhispers(accumulated);
         if (whispers.length > 0) scheduleWhispers(whispers);
-        if (immediateWhispers.length > 0) fireImmediateWhispers(immediateWhispers);
+        if (immediateWhispers.length > 0) fireImmediateWhispers(immediateWhispers).catch(() => {});
+        if (phoneWhispers.length > 0) firePhoneWhispers(phoneWhispers).catch(() => {});
 
         const assistantMsg: DisplayMessage = {
           role: "assistant",

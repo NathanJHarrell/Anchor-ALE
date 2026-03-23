@@ -20,7 +20,7 @@ import CareNotifications from "./CareNotifications";
 import HeartbeatIndicator from "./HeartbeatIndicator";
 import { HeartbeatMonitor } from "../../lib/heartbeat/monitor";
 import { HeartbeatBridge } from "../../lib/heartbeat/bridge";
-import { parseWhispers, scheduleWhispers, fireImmediateWhispers } from "../../lib/care/whisper";
+import { parseWhispers, scheduleWhispers, fireImmediateWhispers, firePhoneWhispers } from "../../lib/care/whisper";
 import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
 import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
 import { addDate } from "../../lib/database";
@@ -55,6 +55,9 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
   const [aftercare, setAftercare] = useState<AftercareNotification | null>(null);
   const [pendingDates, setPendingDates] = useState<{ label: string; date: string; type: "anniversary" | "birthday" | "milestone" | "custom" }[]>([]);
+
+  // Track companion-initiated message timestamps for styling + API exclusion
+  const companionMsgTimestamps = useRef<Set<number>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -128,6 +131,29 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     return () => window.removeEventListener("chat-message-sent", handler);
   }, [currentSession]);
 
+  // ── Listen for companion-initiated messages ────────────────────
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { content, timestamp } = (e as CustomEvent<{ content: string; timestamp: number }>).detail;
+      companionMsgTimestamps.current.add(timestamp);
+
+      const companionMsg: DisplayMessage = {
+        role: "assistant",
+        content,
+        timestamp,
+      };
+      setMessages((prev) => [...prev, companionMsg]);
+
+      // Persist to session if available
+      if (currentSession) {
+        saveMessage(currentSession.id, companionMsg).catch(() => {});
+      }
+    };
+    window.addEventListener("companion-message", handler);
+    return () => window.removeEventListener("companion-message", handler);
+  }, [currentSession]);
+
   // ── Auto-scroll ─────────────────────────────────────────────────
 
   const scrollToBottom = useCallback(() => {
@@ -161,14 +187,31 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       }
 
       // Conversation messages (include images if present)
-      for (const msg of displayMessages) {
-        if (msg.role !== "system") {
-          const apiMsg: Message = { role: msg.role, content: msg.content };
-          if (msg.images && msg.images.length > 0) {
-            apiMsg.images = msg.images;
-          }
-          apiMessages.push(apiMsg);
+      // Exclude trailing companion-initiated messages not followed by a user response
+      // to prevent context bloat from unanswered ambient messages
+      let lastUserIndex = -1;
+      for (let i = displayMessages.length - 1; i >= 0; i--) {
+        if (displayMessages[i]!.role === "user") { lastUserIndex = i; break; }
+      }
+
+      for (let i = 0; i < displayMessages.length; i++) {
+        const msg = displayMessages[i]!;
+        if (msg.role === "system") continue;
+
+        // Skip companion-initiated messages that come after the last user message
+        if (
+          i > lastUserIndex &&
+          msg.role === "assistant" &&
+          companionMsgTimestamps.current.has(msg.timestamp)
+        ) {
+          continue;
         }
+
+        const apiMsg: Message = { role: msg.role, content: msg.content };
+        if (msg.images && msg.images.length > 0) {
+          apiMsg.images = msg.images;
+        }
+        apiMessages.push(apiMsg);
       }
 
       return apiMessages;
@@ -352,12 +395,15 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
         if (!abortRef.current && accumulated) {
           // Parse whisper tags from AI response
-          const { cleaned, whispers, immediateWhispers } = parseWhispers(accumulated);
+          const { cleaned, whispers, immediateWhispers, phoneWhispers } = parseWhispers(accumulated);
           if (whispers.length > 0) {
             scheduleWhispers(whispers);
           }
           if (immediateWhispers.length > 0) {
-            fireImmediateWhispers(immediateWhispers);
+            fireImmediateWhispers(immediateWhispers).catch(() => {});
+          }
+          if (phoneWhispers.length > 0) {
+            firePhoneWhispers(phoneWhispers).catch(() => {});
           }
 
           // Parse [MOOD:] tags — silently strip and store in companion's diary
@@ -544,6 +590,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
                     content={msg.content}
                     timestamp={msg.timestamp}
                     images={msg.images}
+                    companionInitiated={companionMsgTimestamps.current.has(msg.timestamp)}
                   />
                 )}
               </div>
