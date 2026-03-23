@@ -105,3 +105,72 @@ export interface NavigationState {
   currentUrl: string;
   isLoading: boolean;
 }
+
+// ── Session types ──────────────────────────────────────────────
+
+export interface Session {
+  id: string;
+  name: string;
+  type: 'home' | 'project';
+  createdAt: number;
+  updatedAt: number;
+  isActive: boolean;
+  vaultFiles: string[];
+  companionName: string | null;
+}
+
+export interface SessionMessage {
+  id: number;
+  sessionId: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  timestamp: number;
+  tokenEstimate: number;
+}
+
+// ── Date tracking types ────────────────────────────────────────
+
+export interface DateEntry {
+  id: number;
+  label: string;
+  date: string;
+  type: 'anniversary' | 'birthday' | 'milestone' | 'custom';
+  recurring: boolean;
+  createdAt: number;
+}
+
+// ── Mood & Handoff types ───────────────────────────────────────
+
+export interface MoodEntry {
+  id: number;
+  sessionId: string | null;
+  encryptedContent: string;
+  iv: string;
+  createdAt: number;
+}
+
+export interface HandoffLetter {
+  id: number;
+  fromSessionId: string;
+  toSessionId: string | null;
+  encryptedContent: string;
+  iv: string;
+  summaryContext: string | null;
+  createdAt: number;
+}
+
+// ── Presence & Whisper types ───────────────────────────────────
+
+export interface WhisperToast {
+  id: string;
+  message: string;
+  type: 'ambient' | 'care' | 'companion';
+  timestamp: number;
+  duration: number;
+}
+
+export interface PresenceState {
+  status: 'active' | 'idle' | 'away' | 'closed';
+  lastChange: number;
+  currentSession: string | null;
+}
