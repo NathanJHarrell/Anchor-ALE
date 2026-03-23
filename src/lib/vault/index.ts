@@ -20,3 +20,4 @@ export {
   setAutoLoadFiles,
 } from "./injector";
 export { parseWritebacks, stripWritebacks, type VaultWriteRequest } from "./writeback";
+export { parseVaultLoads, loadVaultFiles, type VaultLoadResult } from "./loader";

@@ -13,6 +13,7 @@ const DEFAULT_AUTO_LOAD = [
   "care_notes.md",
   "memory_essence.md",
   "conversation_index.md",
+  "obsidian_index.md",
 ];
 
 export async function getAutoLoadFiles(): Promise<string[]> {

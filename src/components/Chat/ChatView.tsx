@@ -22,6 +22,7 @@ import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
 import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
 import { addDate } from "../../lib/database";
 import { parseMoodTags, writeEntry } from "../../lib/journal";
+import { parseVaultLoads, loadVaultFiles } from "../../lib/vault";
 import {
   createAftercareState,
   recordMessage,
@@ -57,6 +58,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
   const isScrollLockedRef = useRef(false);
   const abortRef = useRef(false);
   const aftercareRef = useRef(createAftercareState());
+  const loadedVaultFilesRef = useRef<string[]>([]);
 
   // ── Session initialization ──────────────────────────────────────
 
@@ -87,6 +89,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     setStatusMessages([]);
     setError(null);
     aftercareRef.current = createAftercareState();
+    loadedVaultFilesRef.current = [];
     try {
       const history = await loadHistory(session.id);
       setMessages(history);
@@ -134,6 +137,11 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       if (!currentSession) return [];
 
       const apiMessages = await buildSessionContext(currentSession);
+
+      // Inject dynamically loaded vault files (companion requested via [VAULT_LOAD:])
+      for (const vaultContent of loadedVaultFilesRef.current) {
+        apiMessages.push({ role: "system", content: vaultContent });
+      }
 
       // Conversation messages
       for (const msg of displayMessages) {
@@ -335,8 +343,20 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
             }
           }
 
+          // Parse [VAULT_LOAD:] tags — silently load files for future context
+          const { cleaned: afterVaultStrip, requestedPaths } = parseVaultLoads(afterMoodStrip || cleaned || accumulated);
+          if (requestedPaths.length > 0) {
+            loadVaultFiles(requestedPaths).then((loaded) => {
+              for (const content of loaded) {
+                if (!loadedVaultFilesRef.current.includes(content)) {
+                  loadedVaultFilesRef.current.push(content);
+                }
+              }
+            }).catch(() => {});
+          }
+
           // Parse [SESSION_NAME] tags from AI response
-          const { cleaned: afterNameStrip, sessionName } = parseSessionName(afterMoodStrip || cleaned || accumulated);
+          const { cleaned: afterNameStrip, sessionName } = parseSessionName(afterVaultStrip || afterMoodStrip || cleaned || accumulated);
           if (sessionName && currentSession) {
             applySessionName(currentSession.id, sessionName).then(() => {
               setCurrentSession((prev) => prev ? { ...prev, name: sessionName.name } : prev);
