@@ -1,15 +1,25 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { readTextFile } from "@tauri-apps/plugin-fs";
 import { sendMessage, loadAPIConfig, estimateTokens } from "../../lib/api/router";
-import { getSetting } from "../../lib/database";
-import { buildVaultContext } from "../../lib/vault/injector";
-import type { Message, APIConfig } from "../../lib/types";
+import {
+  getActiveSession,
+  createProject,
+  switchSession,
+  getHomeSession,
+  saveMessage,
+  loadHistory,
+  buildSessionContext,
+  type DisplayMessage,
+} from "../../lib/sessions";
+import { listSessions } from "../../lib/database";
+import type { Message, APIConfig, Session } from "../../lib/types";
 import MessageBubble from "./MessageBubble";
 import StreamingMessage from "./StreamingMessage";
 import ThinkingIndicator from "./ThinkingIndicator";
 import InputBar from "./InputBar";
 import CareNotifications from "./CareNotifications";
 import { parseWhispers, scheduleWhispers } from "../../lib/care/whisper";
+import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
+import { addDate } from "../../lib/database";
 import {
   createAftercareState,
   recordMessage,
@@ -17,12 +27,6 @@ import {
   type AftercareNotification,
   type AftercareAction,
 } from "../../lib/care/aftercare";
-
-interface DisplayMessage {
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-}
 
 interface StatusInfo {
   content: string;
@@ -41,35 +45,53 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
   const [isThinking, setIsThinking] = useState(false);
   const [statusMessages, setStatusMessages] = useState<StatusInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [currentSession, setCurrentSession] = useState<Session | null>(null);
 
   const [aftercare, setAftercare] = useState<AftercareNotification | null>(null);
+  const [pendingDates, setPendingDates] = useState<{ label: string; date: string; type: "anniversary" | "birthday" | "milestone" | "custom" }[]>([]);
 
-  const systemPromptRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isScrollLockedRef = useRef(false);
   const abortRef = useRef(false);
   const aftercareRef = useRef(createAftercareState());
 
-  // ── System prompt loading ───────────────────────────────────────
-
-  const loadSystemPrompt = useCallback(async () => {
-    try {
-      const promptPath = await getSetting("systemPromptPath");
-      if (!promptPath) {
-        systemPromptRef.current = null;
-        return;
-      }
-      const content = await readTextFile(promptPath);
-      systemPromptRef.current = content;
-    } catch {
-      systemPromptRef.current = null;
-    }
-  }, []);
+  // ── Session initialization ──────────────────────────────────────
 
   useEffect(() => {
-    loadSystemPrompt();
-  }, [loadSystemPrompt]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const session = await getActiveSession();
+        if (cancelled) return;
+        setCurrentSession(session);
+        const history = await loadHistory(session.id);
+        if (cancelled) return;
+        setMessages(history);
+      } catch (err) {
+        if (!cancelled) {
+          setError(`Failed to load session: ${err instanceof Error ? err.message : "Unknown error"}`);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // ── Session switching helper ────────────────────────────────────
+
+  const doSwitchSession = useCallback(async (session: Session) => {
+    setCurrentSession(session);
+    setMessages([]);
+    setStatusMessages([]);
+    setError(null);
+    aftercareRef.current = createAftercareState();
+    try {
+      const history = await loadHistory(session.id);
+      setMessages(history);
+    } catch {
+      // History load failed — start fresh display
+    }
+  }, []);
 
   // ── Auto-scroll ─────────────────────────────────────────────────
 
@@ -94,22 +116,9 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
   const buildAPIMessages = useCallback(
     async (displayMessages: DisplayMessage[]): Promise<Message[]> => {
-      const apiMessages: Message[] = [];
+      if (!currentSession) return [];
 
-      // System prompt first
-      if (systemPromptRef.current) {
-        apiMessages.push({ role: "system", content: systemPromptRef.current });
-      }
-
-      // Vault context
-      try {
-        const vaultCtx = await buildVaultContext();
-        if (vaultCtx) {
-          apiMessages.push({ role: "system", content: vaultCtx });
-        }
-      } catch {
-        // Vault unavailable — continue without
-      }
+      const apiMessages = await buildSessionContext(currentSession);
 
       // Conversation messages
       for (const msg of displayMessages) {
@@ -120,15 +129,17 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
       return apiMessages;
     },
-    [],
+    [currentSession],
   );
 
   // ── Slash commands ──────────────────────────────────────────────
 
   const handleSlashCommand = useCallback(
     async (input: string): Promise<boolean> => {
-      const cmd = input.toLowerCase().trim();
+      const trimmed = input.trim();
+      const cmd = trimmed.toLowerCase();
 
+      // /clear — clears display only, archive stays
       if (cmd === "/clear") {
         setMessages([]);
         setStatusMessages([]);
@@ -136,17 +147,63 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         return true;
       }
 
+      // /reload — system prompt reloads on next send via buildSessionContext
       if (cmd === "/reload") {
-        await loadSystemPrompt();
         setStatusMessages((prev) => [
           ...prev,
-          {
-            content: systemPromptRef.current
-              ? "System prompt reloaded."
-              : "No system prompt file configured.",
-            timestamp: Date.now(),
-          },
+          { content: "System prompt will reload on next send.", timestamp: Date.now() },
         ]);
+        return true;
+      }
+
+      // /new [name] — create a new project session
+      if (cmd === "/new" || cmd.startsWith("/new ")) {
+        const name = trimmed.slice(4).trim() || `Project ${Date.now()}`;
+        try {
+          const session = await createProject(name);
+          await doSwitchSession(session);
+          setStatusMessages((prev) => [
+            ...prev,
+            { content: `Created session: ${session.name}`, timestamp: Date.now() },
+          ]);
+        } catch (err) {
+          setError(`Failed to create session: ${err instanceof Error ? err.message : "Unknown"}`);
+        }
+        return true;
+      }
+
+      // /home — switch to home session
+      if (cmd === "/home") {
+        try {
+          const home = await getHomeSession();
+          const active = await switchSession(home.id);
+          await doSwitchSession(active);
+          setStatusMessages((prev) => [
+            ...prev,
+            { content: "Switched to Home.", timestamp: Date.now() },
+          ]);
+        } catch (err) {
+          setError(`Failed to switch: ${err instanceof Error ? err.message : "Unknown"}`);
+        }
+        return true;
+      }
+
+      // /sessions — list all sessions
+      if (cmd === "/sessions") {
+        try {
+          const all = await listSessions();
+          const lines = all.map((s) => {
+            const active = s.isActive ? " (active)" : "";
+            const type = s.type === "home" ? " [home]" : "";
+            return `${s.name}${type}${active}`;
+          });
+          setStatusMessages((prev) => [
+            ...prev,
+            { content: `Sessions:\n${lines.join("\n")}`, timestamp: Date.now() },
+          ]);
+        } catch (err) {
+          setError(`Failed to list sessions: ${err instanceof Error ? err.message : "Unknown"}`);
+        }
         return true;
       }
 
@@ -163,18 +220,17 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       if (cmd === "/status") {
         try {
           const config = await loadAPIConfig();
-          const conversationMessages = messages.filter(
-            (m) => m.role !== "system",
-          );
+          const conversationMessages = messages.filter((m) => m.role !== "system");
           const apiMsgs = conversationMessages.map((m) => ({
             role: m.role as "user" | "assistant",
             content: m.content,
           }));
           const tokens = estimateTokens(apiMsgs);
+          const sessionName = currentSession?.name ?? "Unknown";
           setStatusMessages((prev) => [
             ...prev,
             {
-              content: `Provider: ${config.provider} · Model: ${config.model} · ~${tokens.toLocaleString()} tokens`,
+              content: `Session: ${sessionName} · Provider: ${config.provider} · Model: ${config.model} · ~${tokens.toLocaleString()} tokens`,
               timestamp: Date.now(),
             },
           ]);
@@ -192,7 +248,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
       return false;
     },
-    [loadSystemPrompt, messages, onNavigate],
+    [messages, onNavigate, currentSession, doSwitchSession],
   );
 
   // ── Send message ────────────────────────────────────────────────
@@ -205,6 +261,11 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         if (handled) return;
       }
 
+      if (!currentSession) {
+        setError("No active session. Try /home to initialize.");
+        return;
+      }
+
       setError(null);
       const userMsg: DisplayMessage = {
         role: "user",
@@ -213,6 +274,9 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       };
       const updatedMessages = [...messages, userMsg];
       setMessages(updatedMessages);
+
+      // Persist user message
+      saveMessage(currentSession.id, userMsg).catch(() => {});
 
       // Track for aftercare detection
       recordMessage(aftercareRef.current, text.length);
@@ -245,13 +309,23 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
             scheduleWhispers(whispers);
           }
 
-          const finalContent = cleaned || accumulated;
+          // Parse [DATE_ADD] tags from AI response
+          const dateRequests = parseDateAdds(cleaned || accumulated);
+          if (dateRequests.length > 0) {
+            setPendingDates(dateRequests);
+          }
+          const afterDateStrip = stripDateAdds(cleaned || accumulated);
+
+          const finalContent = afterDateStrip || accumulated;
           const assistantMsg: DisplayMessage = {
             role: "assistant",
             content: finalContent,
             timestamp: Date.now(),
           };
           setMessages((prev) => [...prev, assistantMsg]);
+
+          // Persist assistant message
+          saveMessage(currentSession.id, assistantMsg).catch(() => {});
 
           // Track for aftercare detection
           recordMessage(aftercareRef.current, finalContent.length);
@@ -266,7 +340,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         setStreamContent("");
       }
     },
-    [messages, handleSlashCommand, buildAPIMessages],
+    [messages, handleSlashCommand, buildAPIMessages, currentSession],
   );
 
   // ── Render ──────────────────────────────────────────────────────
@@ -283,6 +357,22 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     [handleSend, onNavigate],
   );
 
+  const confirmDateAdd = useCallback(async (index: number) => {
+    const req = pendingDates[index];
+    if (!req) return;
+    const recurring = req.type === "anniversary" || req.type === "birthday";
+    await addDate(req.label, req.date, req.type, recurring);
+    setPendingDates((prev) => prev.filter((_, i) => i !== index));
+    setStatusMessages((prev) => [
+      ...prev,
+      { content: `Saved date: ${req.label} (${req.date})`, timestamp: Date.now() },
+    ]);
+  }, [pendingDates]);
+
+  const dismissDateAdd = useCallback((index: number) => {
+    setPendingDates((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const isEmpty = messages.length === 0 && statusMessages.length === 0 && !isStreaming;
 
   return (
@@ -293,6 +383,25 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         onAftercareAction={handleAftercareAction}
         onAftercareDismiss={() => setAftercare(null)}
       />
+
+      {/* Pending date confirmations */}
+      {pendingDates.map((req, i) => (
+        <div key={`date-confirm-${i}`} className="flex items-center gap-3 px-4 py-2 bg-anchor-accent/10 border-b border-anchor-border">
+          <span className="text-sm">Add date: <strong>{req.label}</strong> ({req.date}, {req.type})?</span>
+          <button
+            onClick={() => void confirmDateAdd(i)}
+            className="px-2 py-1 text-xs rounded bg-anchor-accent text-white hover:bg-anchor-accent-hover transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => dismissDateAdd(i)}
+            className="px-2 py-1 text-xs rounded text-anchor-muted hover:text-anchor-text transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      ))}
 
       {/* Message area */}
       <div
@@ -305,7 +414,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
             <div className="text-center">
               <div className="text-anchor-muted/40 text-4xl mb-3">~</div>
               <p className="text-anchor-muted text-sm">
-                Start a conversation.
+                {currentSession ? currentSession.name : "Start a conversation."}
               </p>
             </div>
           </div>
@@ -325,7 +434,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
                 {statusBefore.map((s, si) => (
                   <div
                     key={`status-${s.timestamp}-${si}`}
-                    className="text-center text-xs text-anchor-muted/70 py-2 italic"
+                    className="text-center text-xs text-anchor-muted/70 py-2 italic whitespace-pre-line"
                   >
                     {s.content}
                   </div>
@@ -351,7 +460,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
             .map((s, si) => (
               <div
                 key={`status-trailing-${s.timestamp}-${si}`}
-                className="text-center text-xs text-anchor-muted/70 py-2 italic"
+                className="text-center text-xs text-anchor-muted/70 py-2 italic whitespace-pre-line"
               >
                 {s.content}
               </div>
