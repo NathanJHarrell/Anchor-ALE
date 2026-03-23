@@ -68,9 +68,12 @@ export default function BrowserChatPanel({ sharedContent }: BrowserChatPanelProp
 
   // ── Listen for messages sent from ChatView ────────────────────
 
+  const isStreamingRef = useRef(false);
+
   useEffect(() => {
     const handler = () => {
-      if (!currentSession) return;
+      // Don't reload history while streaming — it overwrites in-flight state
+      if (!currentSession || isStreamingRef.current) return;
       loadHistory(currentSession.id).then(setMessages).catch(() => {});
     };
     window.addEventListener("chat-message-sent", handler);
@@ -137,15 +140,23 @@ export default function BrowserChatPanel({ sharedContent }: BrowserChatPanelProp
       content: text,
       timestamp: Date.now(),
     };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
 
-    // Persist
-    saveMessage(currentSession.id, userMsg).catch(() => {});
+    // Use functional update to avoid stale closure
+    let updatedMessages: DisplayMessage[] = [];
+    setMessages((prev) => {
+      updatedMessages = [...prev, userMsg];
+      return updatedMessages;
+    });
 
-    // Notify ChatView
+    // Persist BEFORE notifying ChatView
+    try {
+      await saveMessage(currentSession.id, userMsg);
+    } catch { /* persistence best-effort */ }
+
+    // Notify ChatView (safe now — message is persisted)
     window.dispatchEvent(new CustomEvent("chat-message-sent"));
 
+    isStreamingRef.current = true;
     setIsStreaming(true);
     setStreamContent("");
     abortRef.current = false;
@@ -175,18 +186,23 @@ export default function BrowserChatPanel({ sharedContent }: BrowserChatPanelProp
           timestamp: Date.now(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
-        saveMessage(currentSession.id, assistantMsg).catch(() => {});
 
-        // Notify ChatView
+        // Persist BEFORE notifying ChatView
+        try {
+          await saveMessage(currentSession.id, assistantMsg);
+        } catch { /* persistence best-effort */ }
+
+        // Notify ChatView (safe now — message is persisted)
         window.dispatchEvent(new CustomEvent("chat-message-sent"));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setStreamContent("");
     }
-  }, [input, isStreaming, currentSession, messages, buildAPIMessages]);
+  }, [input, isStreaming, currentSession, buildAPIMessages]);
 
   // ── Render ────────────────────────────────────────────────────
 

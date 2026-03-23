@@ -5,6 +5,10 @@
   "windows": [
     "main"
   ],
+  "webviews": [
+    "main",
+    "browser-*"
+  ],
   "permissions": [
     "core:default",
     "core:webview:default",

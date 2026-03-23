@@ -74,6 +74,9 @@ export default function BrowserView() {
     const label = `browser-${++webviewIdRef.current}`;
     const appWindow = getCurrentWindow();
 
+    // Timeout fallback — clear loading if webview events never fire
+    const loadingTimeout = setTimeout(() => setIsLoading(false), 4000);
+
     try {
       const webview = new Webview(appWindow, label, {
         url,
@@ -84,15 +87,19 @@ export default function BrowserView() {
       });
 
       webview.once("tauri://created", () => {
+        clearTimeout(loadingTimeout);
         setIsLoading(false);
       });
 
-      webview.once("tauri://error", () => {
+      webview.once("tauri://error", (e) => {
+        clearTimeout(loadingTimeout);
+        console.error("Webview creation error:", e);
         setIsLoading(false);
       });
 
       webviewRef.current = webview;
     } catch (err) {
+      clearTimeout(loadingTimeout);
       console.error("Failed to create webview:", err);
       setIsLoading(false);
     }
