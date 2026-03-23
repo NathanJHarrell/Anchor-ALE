@@ -122,9 +122,12 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
   // ── Listen for messages sent from browser chat panel ────────────
 
+  const isStreamingRef = useRef(false);
+
   useEffect(() => {
     const handler = () => {
-      if (!currentSession) return;
+      // Don't reload history while streaming — it overwrites in-flight state
+      if (!currentSession || isStreamingRef.current) return;
       loadHistory(currentSession.id).then(setMessages).catch(() => {});
     };
     window.addEventListener("chat-message-sent", handler);
@@ -360,17 +363,25 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
         timestamp: Date.now(),
         images,
       };
-      const updatedMessages = [...messages, userMsg];
-      setMessages(updatedMessages);
 
-      // Persist user message
-      saveMessage(currentSession.id, userMsg).catch(() => {});
+      // Use functional update to avoid stale closure
+      let updatedMessages: DisplayMessage[] = [];
+      setMessages((prev) => {
+        updatedMessages = [...prev, userMsg];
+        return updatedMessages;
+      });
 
-      // Notify browser chat panel
+      // Persist user message BEFORE notifying other panels
+      try {
+        await saveMessage(currentSession.id, userMsg);
+      } catch { /* persistence best-effort */ }
+
+      // Notify browser chat panel (safe now — message is persisted)
       window.dispatchEvent(new CustomEvent("chat-message-sent"));
 
       // Track for aftercare detection
       recordMessage(aftercareRef.current, text.length);
+      isStreamingRef.current = true;
       setIsStreaming(true);
       setIsThinking(true);
       setStreamContent("");
@@ -455,10 +466,12 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
           };
           setMessages((prev) => [...prev, assistantMsg]);
 
-          // Persist assistant message
-          saveMessage(currentSession.id, assistantMsg).catch(() => {});
+          // Persist assistant message BEFORE notifying other panels
+          try {
+            await saveMessage(currentSession.id, assistantMsg);
+          } catch { /* persistence best-effort */ }
 
-          // Notify browser chat panel
+          // Notify browser chat panel (safe now — message is persisted)
           window.dispatchEvent(new CustomEvent("chat-message-sent"));
 
           // Update heartbeat monitor with current conversation token count
@@ -475,12 +488,13 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Something went wrong.");
       } finally {
+        isStreamingRef.current = false;
         setIsStreaming(false);
         setIsThinking(false);
         setStreamContent("");
       }
     },
-    [messages, handleSlashCommand, buildAPIMessages, currentSession],
+    [handleSlashCommand, buildAPIMessages, currentSession],
   );
 
   // ── Render ──────────────────────────────────────────────────────
