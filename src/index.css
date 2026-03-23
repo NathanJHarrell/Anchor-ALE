@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+@theme {
+  /* Dark mode (default) — warm dark gray */
+  --color-anchor-bg: #1c1917;
+  --color-anchor-surface: #292524;
+  --color-anchor-border: #3f3a36;
+  --color-anchor-text: #e7e5e4;
+  --color-anchor-muted: #78716c;
+  --color-anchor-accent: #9333ea;
+  --color-anchor-accent-hover: #7e22ce;
+}
+
+/* Light mode — soft cream */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-anchor-bg: #faf7f5;
+    --color-anchor-surface: #f5f0ec;
+    --color-anchor-border: #e7e0da;
+    --color-anchor-text: #1c1917;
+    --color-anchor-muted: #78716c;
+    --color-anchor-accent: #9333ea;
+    --color-anchor-accent-hover: #7e22ce;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+@keyframes careSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
