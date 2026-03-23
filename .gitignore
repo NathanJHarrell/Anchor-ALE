@@ -52,3 +52,8 @@ Thumbs.db
 # Secrets / keys
 *.pem
 *.key
+
+# Private conversation data
+conversations.json
+scripts/import-conversations.py
+The Magic of Claude/

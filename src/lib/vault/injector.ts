@@ -11,6 +11,8 @@ const DEFAULT_AUTO_LOAD = [
   "relationship.md",
   "memories.md",
   "care_notes.md",
+  "memory_essence.md",
+  "conversation_index.md",
 ];
 
 export async function getAutoLoadFiles(): Promise<string[]> {
