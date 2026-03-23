@@ -25,3 +25,4 @@ export {
 } from "./injector";
 export { parseWritebacks, stripWritebacks, type VaultWriteRequest } from "./writeback";
 export { parseVaultLoads, loadVaultFiles, type VaultLoadResult } from "./loader";
+export { parseLinks, buildGraph, NODE_COLORS, type GraphNode, type GraphEdge, type VaultGraph } from "./graph";

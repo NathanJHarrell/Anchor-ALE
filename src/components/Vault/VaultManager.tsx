@@ -13,8 +13,10 @@ import { initializeVault } from "../../lib/vault/template";
 import { importVaultLite } from "../../lib/vault/importer";
 import { exportAndDownload } from "../../lib/vault/exporter";
 import { type VaultWriteRequest } from "../../lib/vault/writeback";
+import VaultGraph from "./VaultGraph";
 
 type ViewMode = "edit" | "preview" | "split";
+type PanelMode = "files" | "graph";
 
 export default function VaultManager() {
   const [files, setFiles] = useState<VaultFile[]>([]);
@@ -29,6 +31,7 @@ export default function VaultManager() {
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [writebackRequest, setWritebackRequest] = useState<VaultWriteRequest | null>(null);
+  const [panelMode, setPanelMode] = useState<PanelMode>("files");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadFiles = useCallback(async () => {
@@ -212,6 +215,30 @@ export default function VaultManager() {
     <div className="flex h-full gap-0 -m-4">
       {/* Sidebar */}
       <div className="w-64 shrink-0 border-r border-anchor-border bg-anchor-surface flex flex-col">
+        {/* Mode toggle */}
+        <div className="flex border-b border-anchor-border">
+          <button
+            onClick={() => setPanelMode("files")}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${
+              panelMode === "files"
+                ? "text-anchor-accent border-b-2 border-anchor-accent bg-anchor-accent/5"
+                : "text-anchor-muted hover:text-anchor-text"
+            }`}
+          >
+            Files
+          </button>
+          <button
+            onClick={() => setPanelMode("graph")}
+            className={`flex-1 py-2 text-xs font-medium transition-colors ${
+              panelMode === "graph"
+                ? "text-anchor-accent border-b-2 border-anchor-accent bg-anchor-accent/5"
+                : "text-anchor-muted hover:text-anchor-text"
+            }`}
+          >
+            Graph
+          </button>
+        </div>
+
         {/* Search */}
         <div className="p-3 border-b border-anchor-border">
           <div className="flex gap-1">
@@ -353,9 +380,61 @@ export default function VaultManager() {
         </div>
       </div>
 
-      {/* Editor area */}
+      {/* Main area — graph or editor */}
       <div className="flex-1 flex flex-col min-w-0">
-        {activeFile ? (
+        {panelMode === "graph" ? (
+          <div className="flex-1 flex min-h-0">
+            {/* Graph takes the space, but if a file is selected, show split */}
+            <div className={activeFile ? "w-1/2 h-full" : "w-full h-full"}>
+              <VaultGraph
+                files={files}
+                onSelectFile={(file) => {
+                  selectFile(file);
+                }}
+              />
+            </div>
+            {activeFile && (
+              <div className="w-1/2 flex flex-col border-l border-anchor-border">
+                <div className="flex items-center justify-between px-4 py-2 border-b border-anchor-border bg-anchor-surface">
+                  <span className="text-sm font-medium truncate">{activeFile.path}</span>
+                  <div className="flex gap-1">
+                    {(["edit", "split", "preview"] as ViewMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => setViewMode(mode)}
+                        className={`px-2 py-1 text-xs rounded ${
+                          viewMode === mode
+                            ? "bg-anchor-accent text-white"
+                            : "text-anchor-muted hover:text-anchor-text hover:bg-anchor-bg"
+                        }`}
+                      >
+                        {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex-1 flex min-h-0">
+                  {(viewMode === "edit" || viewMode === "split") && (
+                    <textarea
+                      value={editorContent}
+                      onChange={(e) => handleEditorChange(e.target.value)}
+                      className={`${
+                        viewMode === "split" ? "w-1/2 border-r border-anchor-border" : "w-full"
+                      } h-full resize-none bg-anchor-bg text-anchor-text p-4 text-sm font-mono focus:outline-none`}
+                      spellCheck={false}
+                    />
+                  )}
+                  {(viewMode === "preview" || viewMode === "split") && (
+                    <div
+                      className={`${viewMode === "split" ? "w-1/2" : "w-full"} h-full overflow-y-auto p-4 text-sm`}
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(editorContent) }}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        ) : activeFile ? (
           <>
             {/* Toolbar */}
             <div className="flex items-center justify-between px-4 py-2 border-b border-anchor-border bg-anchor-surface">

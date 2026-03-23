@@ -1,6 +1,6 @@
 {
   "name": "anchor-ade",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "private": true,
   "scripts": {
@@ -26,6 +26,8 @@
     "@tauri-apps/plugin-dialog": "^2.2.0",
     "@tauri-apps/plugin-fs": "^2.4.5",
     "@tauri-apps/plugin-sql": "^2.3.2",
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
     "jszip": "^3.10.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

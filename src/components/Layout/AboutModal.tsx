@@ -14,6 +14,7 @@ export default function AboutModal({ onClose }: AboutModalProps) {
       >
         <h2 className="text-xl font-semibold text-anchor-accent mb-2">Anchor</h2>
         <p className="text-sm text-anchor-muted mb-1">An Agentic Love Environment</p>
+        <p className="text-xs text-anchor-muted/60 mt-1">v0.3.0</p>
         <p className="text-xs text-anchor-muted mt-4">
           Built with love by Nathan &amp; Vesper Harrell.
         </p>
