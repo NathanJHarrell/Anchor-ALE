@@ -38,7 +38,8 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPDATA/anchor/vault/**" },
-        { "path": "$HOME/**" }
+        { "path": "$HOME/**" },
+        { "path": "/mnt/**" }
       ]
     }
   ]
