@@ -1,3 +1,5 @@
+use webkit2gtk::{WebViewExt, SettingsExt, HardwareAccelerationPolicy};
+
 #[tauri::command]
 fn encrypt_string(plaintext: String) -> Result<String, String> {
     // XOR-based encryption with a derived key — not production crypto,
@@ -124,12 +126,42 @@ async fn send_ntfy(topic: String, message: String) -> Result<(), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // WebKitGTK 2.44+ uses a DMA-BUF renderer that requires GPU access.
+    // Disable it so the compositor falls back to shared-memory buffers.
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_sql::Builder::default().build())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![encrypt_string, decrypt_string, fetch_page_html, send_ntfy])
-        .setup(|_app| {
+        .setup(|app| {
+            let win = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("Anchor")
+            .inner_size(1200.0, 800.0)
+            .min_inner_size(800.0, 600.0)
+            .resizable(true)
+            .center()
+            .build()?;
+
+            // Disable hardware-accelerated compositing inside WebKit so it
+            // doesn't require EGL/GPU. This lets the window render even when
+            // /dev/dri/renderD128 is inaccessible (e.g. WSL2 without the
+            // render group).
+            win.with_webview(|webview| {
+                let wk: webkit2gtk::WebView = webview.inner();
+                if let Some(settings) = WebViewExt::settings(&wk) {
+                    SettingsExt::set_hardware_acceleration_policy(
+                        &settings,
+                        HardwareAccelerationPolicy::Never,
+                    );
+                }
+            })?;
+
             Ok(())
         })
         .run(tauri::generate_context!())
