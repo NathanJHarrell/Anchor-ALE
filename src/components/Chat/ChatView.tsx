@@ -25,7 +25,9 @@ import { parseDateAdds, stripDateAdds } from "../../lib/dates/parser";
 import { parseSessionName, applySessionName } from "../../lib/sessions/naming";
 import { addDate } from "../../lib/database";
 import { parseMoodTags, writeEntry } from "../../lib/journal";
-import { parseVaultLoads, loadVaultFiles } from "../../lib/vault";
+import { parseVaultLoads, loadVaultFiles, parseWritebacks, stripWritebacks } from "../../lib/vault";
+import { writeFile as writeVaultFile } from "../../lib/vault/vault";
+import type { VaultWriteRequest } from "../../lib/vault/writeback";
 import {
   createAftercareState,
   recordMessage,
@@ -55,6 +57,7 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
 
   const [aftercare, setAftercare] = useState<AftercareNotification | null>(null);
   const [pendingDates, setPendingDates] = useState<{ label: string; date: string; type: "anniversary" | "birthday" | "milestone" | "custom" }[]>([]);
+  const [pendingWritebacks, setPendingWritebacks] = useState<VaultWriteRequest[]>([]);
 
   // Track companion-initiated message timestamps for styling + API exclusion
   const companionMsgTimestamps = useRef<Set<number>>(new Set());
@@ -458,7 +461,14 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
           }
           const afterDateStrip = stripDateAdds(afterNameStrip || cleaned || accumulated);
 
-          const finalContent = afterDateStrip || accumulated;
+          // Parse [VAULT_WRITE] tags from AI response
+          const writeRequests = parseWritebacks(afterDateStrip || accumulated);
+          if (writeRequests.length > 0) {
+            setPendingWritebacks((prev) => [...prev, ...writeRequests]);
+          }
+          const afterWriteStrip = stripWritebacks(afterDateStrip || accumulated);
+
+          const finalContent = afterWriteStrip || accumulated;
           const assistantMsg: DisplayMessage = {
             role: "assistant",
             content: finalContent,
@@ -527,6 +537,28 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
     setPendingDates((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  const approveWriteback = useCallback(async (index: number) => {
+    const req = pendingWritebacks[index];
+    if (!req) return;
+    try {
+      await writeVaultFile(req.filename, req.content);
+      setStatusMessages((prev) => [
+        ...prev,
+        { content: `Vault updated: ${req.filename}`, timestamp: Date.now() },
+      ]);
+    } catch (err) {
+      setStatusMessages((prev) => [
+        ...prev,
+        { content: `Vault write failed: ${err instanceof Error ? err.message : "Unknown"}`, timestamp: Date.now() },
+      ]);
+    }
+    setPendingWritebacks((prev) => prev.filter((_, i) => i !== index));
+  }, [pendingWritebacks]);
+
+  const dismissWriteback = useCallback((index: number) => {
+    setPendingWritebacks((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const isEmpty = messages.length === 0 && statusMessages.length === 0 && !isStreaming;
 
   return (
@@ -559,6 +591,30 @@ export default function ChatView({ onNavigate }: ChatViewProps) {
           >
             Dismiss
           </button>
+        </div>
+      ))}
+
+      {/* Pending vault write confirmations */}
+      {pendingWritebacks.map((req, i) => (
+        <div key={`writeback-${i}`} className="px-4 py-2 bg-anchor-accent/10 border-b border-anchor-border">
+          <div className="flex items-center gap-3">
+            <span className="text-sm">Write to vault: <strong className="text-anchor-accent">{req.filename}</strong></span>
+            <button
+              onClick={() => void approveWriteback(i)}
+              className="px-2 py-1 text-xs rounded bg-anchor-accent text-white hover:bg-anchor-accent-hover transition-colors"
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => dismissWriteback(i)}
+              className="px-2 py-1 text-xs rounded text-anchor-muted hover:text-anchor-text transition-colors"
+            >
+              Deny
+            </button>
+          </div>
+          <pre className="mt-1.5 text-xs text-anchor-muted bg-anchor-bg rounded p-2 max-h-32 overflow-auto border border-anchor-border">
+            {req.content}
+          </pre>
         </div>
       ))}
 
